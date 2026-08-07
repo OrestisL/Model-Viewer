@@ -14,6 +14,7 @@ Builds with CMake on Linux and Windows.
 | Draco-compressed glTF/GLB | Yes, on by default (`MV_ENABLE_DRACO`) |
 | Configurable sky | Gradient sky with presets, optional sun disc |
 | Ambient light | Colour and strength configurable, or derived from the sky per-normal |
+| Unlit mode | Bypasses all lighting for models with baked-in lighting |
 | Shadows | PCF-filtered shadow map, cast by the brightest light in the scene |
 | meshopt-compressed glTF/GLB | **Not supported** — run `gltfpack -noq` to decompress first |
 | Skeletal + node animation playback | Timeline, scrub, loop, speed, clip selection |

@@ -32,7 +32,8 @@ layout(set = 0, binding = 0) uniform GlobalsBlock
     mat4  viewProj;
     vec4  cameraPos;      // xyz = eye,  w = unused
     vec4  ambient;        // rgb = colour, a = intensity
-    vec4  params;         // x = lightCount, y = debugMode, z = exposure, w = time
+    vec4  params;         // x = lightCount, y = debugMode, z = exposure,
+                          // w = unlit mode (0 or 1)
     vec4  skyZenith;      // rgb = colour, a = intensity
     vec4  skyHorizon;     // rgb = colour, a = horizon tightness
     vec4  skyGround;      // rgb = colour, a = sky drives ambient (0 or 1)

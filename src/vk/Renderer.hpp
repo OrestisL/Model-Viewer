@@ -33,6 +33,21 @@ enum class DebugView : int
 
 const char* debugViewName(DebugView view);
 
+/// How the scene is lit.
+enum class LightingMode : int
+{
+    /// Imported lights when the file has them, otherwise the built-in rig,
+    /// plus ambient.
+    Scene = 0,
+    /// No lighting at all: base colour and emissive exactly as authored.
+    /// The right choice for assets whose lighting is already baked into their
+    /// textures, where relighting them only makes them look wrong.
+    Unlit,
+    Count
+};
+
+const char* lightingModeName(LightingMode mode);
+
 /// Everything the UI can tweak about a frame.
 struct RenderSettings
 {
@@ -97,6 +112,7 @@ struct RenderSettings
     glm::vec3 ambientColor{0.55f, 0.60f, 0.70f};
     float     ambientIntensity = 0.35f;
 
+    LightingMode lightingMode = LightingMode::Scene;
     bool      useSceneLights = true;
     float     lightIntensityScale = 1.0f;
 

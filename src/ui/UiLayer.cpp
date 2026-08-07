@@ -384,14 +384,14 @@ void UiLayer::drawGizmoSettings(App& app)
         switch (m_gizmoOp)
         {
             case GizmoOp::Rotate:
-                ImGui::DragFloat("Step", &m_snapRotate, 0.5f, 1.0f, 90.0f, "%.0f deg");
+                ImGui::DragFloat("Step##rot", &m_snapRotate, 0.5f, 1.0f, 90.0f, "%.0f deg");
                 break;
             case GizmoOp::Scale:
-                ImGui::DragFloat("Step", &m_snapScale, 0.01f, 0.01f, 1.0f, "%.2f");
+                ImGui::DragFloat("Step##scale", &m_snapScale, 0.01f, 0.01f, 1.0f, "%.2f");
                 break;
             case GizmoOp::Translate:
             default:
-                ImGui::DragFloat("Step", &m_snapTranslate, 0.01f, 0.001f, 10.0f, "%.3f");
+                ImGui::DragFloat("Step##move", &m_snapTranslate, 0.01f, 0.001f, 10.0f, "%.3f");
                 break;
         }
     }
@@ -876,7 +876,25 @@ void UiLayer::drawViewerPanel(App& app)
     {
         const bool hasLights = !app.scene().lights.empty();
 
-        ImGui::BeginDisabled(!hasLights);
+        // The mode selector is always available: unlit is most useful precisely
+        // on files that carry no lights of their own.
+        int mode = static_cast<int>(settings.lightingMode);
+        const char* modeNames[static_cast<int>(gfx::LightingMode::Count)];
+        for (int i = 0; i < static_cast<int>(gfx::LightingMode::Count); ++i)
+            modeNames[i] = gfx::lightingModeName(static_cast<gfx::LightingMode>(i));
+
+        if (ImGui::Combo("Mode", &mode, modeNames,
+                         static_cast<int>(gfx::LightingMode::Count)))
+            settings.lightingMode = static_cast<gfx::LightingMode>(mode);
+
+        helpMarker("Unlit turns off every light -- the built-in rig, any lights "
+                   "imported from the file, ambient and shadows -- and draws the "
+                   "base colour and emissive exactly as authored. Use it for "
+                   "models whose lighting is already baked into their textures.");
+
+        const bool unlit = settings.lightingMode == gfx::LightingMode::Unlit;
+
+        ImGui::BeginDisabled(!hasLights || unlit);
         ImGui::Checkbox("Use lights from file", &settings.useSceneLights);
         ImGui::EndDisabled();
 
@@ -885,7 +903,12 @@ void UiLayer::drawViewerPanel(App& app)
         else
             ImGui::TextDisabled("%zu light(s) imported.", app.scene().lights.size());
 
+        ImGui::BeginDisabled(unlit);
         ImGui::SliderFloat("Intensity scale", &settings.lightIntensityScale, 0.0f, 5.0f);
+        ImGui::EndDisabled();
+
+        if (unlit)
+            ImGui::TextDisabled("Unlit: lights, ambient and shadows are all bypassed.");
 
         for (const Light& light : app.scene().lights)
         {

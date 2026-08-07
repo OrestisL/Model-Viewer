@@ -73,6 +73,16 @@ VkPipelineShaderStageCreateInfo shaderStage(VkShaderStageFlagBits stage, VkShade
 
 } // namespace
 
+const char* lightingModeName(LightingMode mode)
+{
+    switch (mode)
+    {
+        case LightingMode::Scene: return "Scene lights";
+        case LightingMode::Unlit: return "Unlit (baked textures)";
+        default:                  return "unknown";
+    }
+}
+
 const char* debugViewName(DebugView view)
 {
     switch (view)
@@ -926,7 +936,11 @@ void Renderer::updateGlobals(const Scene* scene, const Camera& camera, const Ren
         light.cone           = glm::vec4(std::cos(innerCone), std::cos(outerCone), 0.0f, 0.0f);
     };
 
-    const bool useImported = settings.useSceneLights && scene && !scene->lights.empty();
+    // Nothing is lit in unlit mode, so neither the rig nor the imported lights
+    // are worth assembling -- and with no caster the shadow pass is skipped too.
+    const bool unlitMode  = settings.lightingMode == LightingMode::Unlit;
+    const bool useImported = !unlitMode && settings.useSceneLights &&
+                             scene && !scene->lights.empty();
 
     if (useImported)
     {
@@ -1045,10 +1059,10 @@ void Renderer::updateGlobals(const Scene* scene, const Camera& camera, const Ren
                                           ? 1.0f / static_cast<float>(m_shadowExtent)
                                           : 0.0f);
 
-    globals.params = glm::vec4(static_cast<float>(lightCount),
+    globals.params = glm::vec4(unlitMode ? 0.0f : static_cast<float>(lightCount),
                                static_cast<float>(static_cast<int>(settings.debugView)),
                                settings.exposure,
-                               0.0f);
+                               unlitMode ? 1.0f : 0.0f);
 
     std::memcpy(m_frames[m_frameIndex].globals.mapped(), &globals, sizeof(globals));
 }

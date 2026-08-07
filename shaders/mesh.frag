@@ -92,7 +92,19 @@ void main()
     if (debugMode == 4) { outColor = vec4(vec3(metallic), 1.0);               return; }
     if (debugMode == 5) { outColor = vec4(vec3(roughness), 1.0);              return; }
 
-    if ((flags & MV_FLAG_UNLIT) != 0) { outColor = vec4(base.rgb, base.a);    return; }
+    // Unlit: either the material asked for it (KHR_materials_unlit) or the
+    // whole scene is in unlit mode. Emissive is included because assets with
+    // baked lighting routinely carry part of it there, and dropping it would
+    // lose exactly the detail this mode exists to preserve.
+    if ((flags & MV_FLAG_UNLIT) != 0 || G.params.w > 0.5)
+    {
+        vec3 unlitEmissive = pc.emissive.rgb;
+        if ((flags & MV_FLAG_EMISSIVE_TEX) != 0)
+            unlitEmissive *= texture(uEmissive, vUV).rgb;
+
+        outColor = vec4(base.rgb + unlitEmissive, base.a);
+        return;
+    }
 
     vec3 F0      = mix(vec3(0.04), base.rgb, metallic);
     vec3 diffuse = base.rgb * (1.0 - metallic);
