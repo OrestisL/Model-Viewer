@@ -9,7 +9,7 @@ Builds with CMake on Linux and Windows.
 
 | Requirement | Status |
 |---|---|
-| Read FBX, OBJ, STL, glTF, GLB (+ DAE, PLY, 3DS, BLEND, …) | Assimp importer |
+| Read FBX, OBJ, STL, glTF, GLB (+ DAE, PLY, 3DS, X, LWO, OFF, …) | Assimp importer |
 | Read USD / USDA / USDC / USDZ | Assimp + tinyusdz, `-DMV_ENABLE_USD=ON` |
 | Draco-compressed glTF/GLB | Yes, on by default (`MV_ENABLE_DRACO`) |
 | Configurable sky | Gradient sky with presets, optional sun disc |

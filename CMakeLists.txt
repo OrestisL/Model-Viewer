@@ -21,6 +21,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 # ---------------------------------------------------------------------------
 option(MV_ENABLE_VALIDATION "Enable Vulkan validation layers in debug builds" ON)
 option(MV_STATIC_RUNTIME "Link the C/C++ runtime statically for redistribution" OFF)
+option(MV_ENABLE_BLEND      "Build Assimp's .blend importer (unmaintained, crashes on modern files)" OFF)
 option(MV_ENABLE_DRACO      "Decode Draco-compressed glTF/GLB (adds ~2 min to the build)" ON)
 option(MV_ENABLE_USD        "Enable USD/USDA/USDC/USDZ import (Assimp + tinyusdz)" OFF)
 option(MV_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
@@ -41,6 +42,7 @@ set(MV_SOURCES
 
     src/core/Window.cpp
     src/core/Camera.cpp
+    src/core/Crash.cpp
 
     src/vk/Context.cpp
     src/vk/Resources.cpp
@@ -139,6 +141,12 @@ if(WIN32)
     # console so log output is visible.
     set_target_properties(ModelViewer PROPERTIES
         WIN32_EXECUTABLE $<NOT:$<CONFIG:Debug>>)
+endif()
+
+if(NOT MSVC)
+    # Export dynamic symbols so the crash handler's backtrace can name
+    # functions instead of printing raw addresses.
+    target_link_options(ModelViewer PRIVATE -rdynamic)
 endif()
 
 if(MV_STATIC_RUNTIME)

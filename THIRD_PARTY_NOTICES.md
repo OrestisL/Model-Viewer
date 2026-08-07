@@ -10,7 +10,7 @@ any binary release.
 | [Assimp](https://github.com/assimp/assimp) | v5.4.3 | BSD-3-Clause | Model import and export |
 | [Draco](https://github.com/google/draco) | vendored in Assimp | Apache-2.0 | glTF mesh decompression |
 | [tinyusdz](https://github.com/lighttransport/tinyusdz) | `bd2a1ed` | Apache-2.0 / MIT | USD import (optional) |
-| [GLFW](https://github.com/glfw/glfw) | 3.4 | Zlib | Windowing and input |
+| [GLFW](https://github.com/glfw/glfw) | 3.5.1 | Zlib | Windowing and input |
 | [GLM](https://github.com/g-truc/glm) | 1.0.1 | MIT | Maths |
 | [Dear ImGui](https://github.com/ocornut/imgui) | v1.91.8-docking | MIT | User interface |
 | [ImGuizmo](https://github.com/CedricGuillemet/ImGuizmo) | `5ab7676` | MIT | Transform manipulator |

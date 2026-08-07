@@ -679,6 +679,33 @@ bool ModelLoader::load(const fs::path&      path,
     if (UsdBackend::handles(path) && !assimpSupports(path))
         return UsdBackend::load(path, outScene, outError);
 
+    // Refuse unknown extensions before handing anything to the importer.
+    //
+    // Assimp will otherwise fall back to sniffing file contents and may pick a
+    // loader that was never meant for the data. Deciding here, from the
+    // extension, keeps a bad guess from ever reaching parser code -- and an
+    // importer that crashes rather than returning an error cannot be recovered
+    // from once it has been entered.
+    if (!assimpSupports(path))
+    {
+        std::string ext = path.extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+        if (ext == ".blend")
+        {
+            outError = "Blender .blend files are not supported. Assimp's reader "
+                       "only handles the pre-2.8 format. Export glTF or FBX from "
+                       "Blender instead.";
+        }
+        else
+        {
+            outError = "Unsupported file type: " +
+                       (ext.empty() ? std::string("(no extension)") : ext);
+        }
+        return false;
+    }
+
     auto asset = std::make_shared<AssimpAsset>();
     asset->importer.SetPropertyInteger(AI_CONFIG_PP_LBW_MAX_WEIGHTS,
                                        static_cast<int>(kMaxBoneInfluences));
@@ -686,12 +713,42 @@ bool ModelLoader::load(const fs::path&      path,
                                        aiPrimitiveType_POINT | aiPrimitiveType_LINE);
     asset->importer.SetPropertyBool(AI_CONFIG_IMPORT_FBX_PRESERVE_PIVOTS, false);
 
-    asset->scene = asset->importer.ReadFile(path.string(), postProcessFlags(options));
+    // Assimp swallows most import failures and reports them through
+    // GetErrorString, but not all of them: some importers let exceptions
+    // escape, and a corrupt file can provoke a bad_alloc from a bogus size
+    // read out of the header. Losing the whole application because one file
+    // was malformed is not acceptable in a viewer.
+    try
+    {
+        asset->scene = asset->importer.ReadFile(path.string(), postProcessFlags(options));
+    }
+    catch (const std::exception& e)
+    {
+        outError = std::string("Importer threw: ") + e.what();
+        return false;
+    }
+    catch (...)
+    {
+        outError = "Importer threw an unknown exception";
+        return false;
+    }
 
     if (!asset->scene || !asset->scene->mRootNode)
     {
         outError = asset->importer.GetErrorString();
         if (outError.empty()) outError = "Assimp returned no scene";
+
+        // Give the specific advice rather than "unknown file format".
+        std::string ext = path.extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+        if (ext == ".blend")
+        {
+            outError = "Blender .blend files are not supported. Assimp's reader "
+                       "only handles the pre-2.8 format and is unreliable on "
+                       "anything newer. Export glTF or FBX from Blender instead.";
+        }
         return false;
     }
 

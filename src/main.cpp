@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "App.hpp"
+#include "core/Crash.hpp"
 #include "core/Log.hpp"
 
 #if defined(_WIN32)
@@ -37,9 +38,10 @@ void printUsage()
         "  -h, --help      show this message and exit\n"
         "  -v, --version   show the version and exit\n"
         "\n"
-        "Supported input formats: fbx, obj, stl, ply, dae, gltf, glb, 3ds, blend\n"
-        "and everything else Assimp reads. USD (usd/usda/usdc/usdz) requires a\n"
-        "build configured with -DMV_ENABLE_USD=ON.\n",
+        "Supported input formats: fbx, obj, stl, ply, dae, gltf, glb, 3ds and\n"
+        "everything else Assimp reads. USD (usd/usda/usdc/usdz) requires a build\n"
+        "configured with -DMV_ENABLE_USD=ON. Blender .blend files are not\n"
+        "supported; export glTF or FBX from Blender instead.\n",
         kVersion);
 }
 
@@ -51,6 +53,8 @@ int main(int argc, char** argv)
     // Make sure UTF-8 paths and log output survive the console.
     ::SetConsoleOutputCP(CP_UTF8);
 #endif
+
+    mv::installCrashHandler();
 
     std::vector<std::string> arguments;
     arguments.reserve(static_cast<size_t>(argc > 0 ? argc - 1 : 0));

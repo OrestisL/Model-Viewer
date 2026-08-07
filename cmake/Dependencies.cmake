@@ -19,9 +19,16 @@ set(GLFW_BUILD_DOCS      OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_TESTS     OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_EXAMPLES  OFF CACHE BOOL "" FORCE)
 set(GLFW_INSTALL         OFF CACHE BOOL "" FORCE)
+# 3.5.1 rather than 3.4.
+#
+# GLFW 3.4 dereferences a null window pointer in dataDeviceHandleEnter, its
+# Wayland drag-enter callback, and segfaults the moment a file is dragged over
+# the window. Upstream fixed it in 51b6434a two months after 3.4 shipped, and
+# 3.5.1 is the first release to carry it. 49 other Wayland fixes came with it,
+# which matters given how much that backend moved after 3.4.
 FetchContent_Declare(glfw
     GIT_REPOSITORY https://github.com/glfw/glfw.git
-    GIT_TAG        3.4
+    GIT_TAG        3.5.1
     GIT_SHALLOW    TRUE)
 
 # --- GLM -------------------------------------------------------------------
@@ -80,6 +87,21 @@ FetchContent_Declare(imguizmo
     GIT_REPOSITORY https://github.com/CedricGuillemet/ImGuizmo.git
     GIT_TAG        5ab7676402ace03cdf930b2d972f59c7d03c6fa8
     SOURCE_SUBDIR  no-cmake-here)
+
+# Blender's .blend importer, off by default.
+#
+# Assimp reads the raw .blend DNA, which means it is effectively reimplementing
+# part of Blender's internals. It targets the 2.5-2.7 file format; Blender 2.8
+# restructured those DNA blocks and the loader has not kept up, so a modern
+# .blend does not fail cleanly -- it walks off the end of a structure it does
+# not recognise and takes the process with it. That is not something a
+# try/catch can recover from, so the safe move is not to attempt it.
+#
+# Export glTF or FBX from Blender instead: both round-trip far more of the
+# scene than the .blend reader ever did.
+if(NOT MV_ENABLE_BLEND)
+    set(ASSIMP_BUILD_BLEND_IMPORTER OFF CACHE BOOL "" FORCE)
+endif()
 
 # Draco-compressed glTF.
 #
