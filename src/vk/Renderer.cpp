@@ -53,6 +53,12 @@ struct GpuGlobals
     glm::vec4 cameraPos{0.0f};
     glm::vec4 ambient{1.0f};
     glm::vec4 params{0.0f};
+    // Must match GlobalsBlock in shaders/common.glsl, field for field.
+    glm::vec4 skyZenith{0.0f};
+    glm::vec4 skyHorizon{0.0f};
+    glm::vec4 skyGround{0.0f};
+    glm::mat4 lightViewProj{1.0f};
+    glm::vec4 shadowParams{0.0f};
     GpuLight  lights[kMaxLights]{};
 };
 
@@ -92,6 +98,7 @@ void Renderer::init(Context& context, Window& window)
     m_context = &context;
     m_window  = &window;
 
+    createShadowResources(2048);
     createDescriptorLayouts();
     createDescriptorPool();
     createFrameResources();
@@ -179,6 +186,7 @@ void Renderer::shutdown()
 
     clearScene();
 
+    destroyShadowResources();
     destroyImage(*m_context, m_whiteTexture);
     destroyImage(*m_context, m_normalTexture);
     destroyImage(*m_context, m_blackTexture);
@@ -220,13 +228,97 @@ void Renderer::shutdown()
 // Setup
 // ---------------------------------------------------------------------------
 
+void Renderer::createShadowResources(uint32_t resolution)
+{
+    destroyShadowResources();
+    m_shadowExtent = resolution;
+
+    for (uint32_t i = 0; i < kFramesInFlight; ++i)
+    {
+        VkImageCreateInfo info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+        info.imageType     = VK_IMAGE_TYPE_2D;
+        info.format        = VK_FORMAT_D32_SFLOAT;
+        info.extent        = {resolution, resolution, 1};
+        info.mipLevels     = 1;
+        info.arrayLayers   = 1;
+        info.samples       = VK_SAMPLE_COUNT_1_BIT;   // never multisampled
+        info.tiling        = VK_IMAGE_TILING_OPTIMAL;
+        info.usage         = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
+                             VK_IMAGE_USAGE_SAMPLED_BIT;
+        info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+        VmaAllocationCreateInfo alloc{};
+        alloc.usage         = VMA_MEMORY_USAGE_AUTO;
+        alloc.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+
+        check(vmaCreateImage(m_context->allocator(), &info, &alloc,
+                             &m_shadowMaps[i].handle, &m_shadowMaps[i].allocation, nullptr),
+              "vmaCreateImage(shadow)");
+
+        VkImageViewCreateInfo viewInfo{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+        viewInfo.image                       = m_shadowMaps[i].handle;
+        viewInfo.viewType                    = VK_IMAGE_VIEW_TYPE_2D;
+        viewInfo.format                      = VK_FORMAT_D32_SFLOAT;
+        viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+        viewInfo.subresourceRange.levelCount = 1;
+        viewInfo.subresourceRange.layerCount = 1;
+
+        check(vkCreateImageView(m_context->device(), &viewInfo, nullptr, &m_shadowMaps[i].view),
+              "vkCreateImageView(shadow)");
+
+        m_shadowMaps[i].extent = {resolution, resolution};
+        m_shadowMaps[i].format = VK_FORMAT_D32_SFLOAT;
+    }
+
+    // A depth-compare sampler: the hardware performs the comparison and then
+    // bilinearly filters the 0/1 results, so a single fetch is already 2x2 PCF.
+    // Clamping to a white border means anything outside the map reads as lit,
+    // which is what you want beyond the shadow frustum.
+    VkSamplerCreateInfo sampler{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+    sampler.magFilter    = VK_FILTER_LINEAR;
+    sampler.minFilter    = VK_FILTER_LINEAR;
+    sampler.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    sampler.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+    sampler.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+    sampler.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+    sampler.borderColor  = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
+    sampler.compareEnable = VK_TRUE;
+    sampler.compareOp     = VK_COMPARE_OP_LESS_OR_EQUAL;
+    sampler.maxLod        = 0.0f;
+
+    check(vkCreateSampler(m_context->device(), &sampler, nullptr, &m_shadowSampler),
+          "vkCreateSampler(shadow)");
+}
+
+void Renderer::destroyShadowResources()
+{
+    if (!m_context) return;
+
+    for (Image& image : m_shadowMaps)
+    {
+        if (image.view) vkDestroyImageView(m_context->device(), image.view, nullptr);
+        if (image.handle)
+            vmaDestroyImage(m_context->allocator(), image.handle, image.allocation);
+        image = Image{};
+    }
+
+    if (m_shadowSampler)
+    {
+        vkDestroySampler(m_context->device(), m_shadowSampler, nullptr);
+        m_shadowSampler = VK_NULL_HANDLE;
+    }
+    m_shadowExtent = 0;
+}
+
 void Renderer::createDescriptorLayouts()
 {
-    const std::array<VkDescriptorSetLayoutBinding, 2> globalBindings{{
+    const std::array<VkDescriptorSetLayoutBinding, 3> globalBindings{{
         {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1,
          VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
         {1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
-         VK_SHADER_STAGE_VERTEX_BIT, nullptr}}};
+         VK_SHADER_STAGE_VERTEX_BIT, nullptr},
+        {2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
+         VK_SHADER_STAGE_FRAGMENT_BIT, nullptr}}};
 
     VkDescriptorSetLayoutCreateInfo globalInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
     globalInfo.bindingCount = static_cast<uint32_t>(globalBindings.size());
@@ -253,7 +345,7 @@ void Renderer::createDescriptorPool()
     const std::array<VkDescriptorPoolSize, 3> sizes{{
         {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         kFramesInFlight},
         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         kFramesInFlight},
-        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kMaxMaterials * 4}}};
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kMaxMaterials * 4 + kFramesInFlight}}};
 
     VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     poolInfo.flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
@@ -267,8 +359,12 @@ void Renderer::createDescriptorPool()
 
 void Renderer::createFrameResources()
 {
-    for (FrameData& frame : m_frames)
+    // Indexed rather than range-based: each frame needs its own shadow map,
+    // for the same reason the depth buffer is per-frame.
+    for (uint32_t i = 0; i < kFramesInFlight; ++i)
     {
+        FrameData& frame = m_frames[i];
+
         VkCommandPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
         poolInfo.flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
         poolInfo.queueFamilyIndex = m_context->graphicsQueueFamily();
@@ -306,7 +402,12 @@ void Renderer::createFrameResources()
         VkDescriptorBufferInfo globalBuffer{frame.globals.handle, 0, sizeof(GpuGlobals)};
         VkDescriptorBufferInfo boneBuffer{frame.bones.handle, 0, VK_WHOLE_SIZE};
 
-        std::array<VkWriteDescriptorSet, 2> writes{};
+        VkDescriptorImageInfo shadowInfo{};
+        shadowInfo.sampler     = m_shadowSampler;
+        shadowInfo.imageView   = m_shadowMaps[i].view;
+        shadowInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+
+        std::array<VkWriteDescriptorSet, 3> writes{};
         writes[0]                 = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
         writes[0].dstSet          = frame.globalSet;
         writes[0].dstBinding      = 0;
@@ -320,6 +421,13 @@ void Renderer::createFrameResources()
         writes[1].descriptorCount = 1;
         writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         writes[1].pBufferInfo     = &boneBuffer;
+
+        writes[2]                 = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        writes[2].dstSet          = frame.globalSet;
+        writes[2].dstBinding      = 2;
+        writes[2].descriptorCount = 1;
+        writes[2].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[2].pImageInfo      = &shadowInfo;
 
         vkUpdateDescriptorSets(m_context->device(),
                                static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
@@ -357,6 +465,9 @@ void Renderer::createPipelines()
     VkShaderModule meshFrag = loadShaderModule(*m_context, "mesh.frag");
     VkShaderModule gridVert = loadShaderModule(*m_context, "grid.vert");
     VkShaderModule gridFrag = loadShaderModule(*m_context, "grid.frag");
+    VkShaderModule shadowVert = loadShaderModule(*m_context, "shadow.vert");
+    VkShaderModule skyVert  = loadShaderModule(*m_context, "sky.vert");
+    VkShaderModule skyFrag  = loadShaderModule(*m_context, "sky.frag");
     VkShaderModule axesVert = loadShaderModule(*m_context, "axes.vert");
     VkShaderModule axesFrag = loadShaderModule(*m_context, "axes.frag");
 
@@ -434,7 +545,8 @@ void Renderer::createPipelines()
                             bool depthWrite, bool blend,
                             float depthBias = 0.0f,
                             VkPrimitiveTopology topology =
-                                VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST) -> VkPipeline
+                                VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+                            bool depthTest = true) -> VkPipeline
     {
         const std::array<VkPipelineShaderStageCreateInfo, 2> stages{
             shaderStage(VK_SHADER_STAGE_VERTEX_BIT, vert),
@@ -458,7 +570,7 @@ void Renderer::createPipelines()
 
         VkPipelineDepthStencilStateCreateInfo depthStencil{
             VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
-        depthStencil.depthTestEnable  = VK_TRUE;
+        depthStencil.depthTestEnable  = depthTest ? VK_TRUE : VK_FALSE;
         depthStencil.depthWriteEnable = depthWrite ? VK_TRUE : VK_FALSE;
         depthStencil.depthCompareOp   = VK_COMPARE_OP_LESS_OR_EQUAL;
         depthStencil.maxDepthBounds   = 1.0f;
@@ -514,6 +626,77 @@ void Renderer::createPipelines()
     m_wireframePipeline = makePipeline(meshVert, meshFrag, vertexInput,
                                        VK_CULL_MODE_NONE, VK_POLYGON_MODE_LINE, true, false);
 
+    {
+        // Depth-only, so no colour attachment and no fragment shader. A
+        // slope-scaled depth bias here is the standard defence against shadow
+        // acne on surfaces nearly parallel to the light; the shader adds a
+        // normal offset on top for curved geometry.
+        VkPipelineRenderingCreateInfo shadowRendering{
+            VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+        shadowRendering.depthAttachmentFormat = VK_FORMAT_D32_SFLOAT;
+
+        VkPipelineShaderStageCreateInfo stage =
+            shaderStage(VK_SHADER_STAGE_VERTEX_BIT, shadowVert);
+
+        VkPipelineInputAssemblyStateCreateInfo assembly{
+            VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
+        assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+        VkPipelineViewportStateCreateInfo viewportState{
+            VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+        viewportState.viewportCount = 1;
+        viewportState.scissorCount  = 1;
+
+        VkPipelineRasterizationStateCreateInfo raster{
+            VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+        raster.polygonMode             = VK_POLYGON_MODE_FILL;
+        raster.cullMode                = VK_CULL_MODE_NONE;
+        raster.frontFace               = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+        raster.lineWidth               = 1.0f;
+        raster.depthBiasEnable         = VK_TRUE;
+        raster.depthBiasConstantFactor = 1.5f;
+        raster.depthBiasSlopeFactor    = 2.5f;
+
+        VkPipelineMultisampleStateCreateInfo multisample{
+            VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
+        multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+        VkPipelineDepthStencilStateCreateInfo depthStencil{
+            VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+        depthStencil.depthTestEnable  = VK_TRUE;
+        depthStencil.depthWriteEnable = VK_TRUE;
+        depthStencil.depthCompareOp   = VK_COMPARE_OP_LESS_OR_EQUAL;
+        depthStencil.maxDepthBounds   = 1.0f;
+
+        VkPipelineColorBlendStateCreateInfo blendState{
+            VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
+
+        VkGraphicsPipelineCreateInfo info{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+        info.pNext               = &shadowRendering;
+        info.stageCount          = 1;
+        info.pStages             = &stage;
+        info.pVertexInputState   = &vertexInput;
+        info.pInputAssemblyState = &assembly;
+        info.pViewportState      = &viewportState;
+        info.pRasterizationState = &raster;
+        info.pMultisampleState   = &multisample;
+        info.pDepthStencilState  = &depthStencil;
+        info.pColorBlendState    = &blendState;
+        info.pDynamicState       = &dynamicState;
+        info.layout              = m_pipelineLayout;
+
+        check(vkCreateGraphicsPipelines(m_context->device(), VK_NULL_HANDLE, 1, &info,
+                                        nullptr, &m_shadowPipeline),
+              "vkCreateGraphicsPipelines(shadow)");
+    }
+
+    // The sky is drawn first with neither depth test nor depth write, so it
+    // fills the background and everything else simply covers it. No need to
+    // push it to the far plane or fight precision there.
+    m_skyPipeline = makePipeline(skyVert, skyFrag, emptyVertexInput,
+                                 VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, false, false,
+                                 0.0f, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST, false);
+
     // Line list, blended, depth tested but not depth writing: the grid is an
     // overlay on the ground plane, not an occluder.
     m_gridPipeline = makePipeline(gridVert, gridFrag, gridVertexInput,
@@ -529,6 +712,9 @@ void Renderer::createPipelines()
     vkDestroyShaderModule(m_context->device(), meshFrag, nullptr);
     vkDestroyShaderModule(m_context->device(), gridVert, nullptr);
     vkDestroyShaderModule(m_context->device(), gridFrag, nullptr);
+    vkDestroyShaderModule(m_context->device(), shadowVert, nullptr);
+    vkDestroyShaderModule(m_context->device(), skyVert, nullptr);
+    vkDestroyShaderModule(m_context->device(), skyFrag, nullptr);
     vkDestroyShaderModule(m_context->device(), axesVert, nullptr);
     vkDestroyShaderModule(m_context->device(), axesFrag, nullptr);
 }
@@ -549,11 +735,15 @@ void Renderer::destroyPipelines()
 
     if (m_gridPipeline)      vkDestroyPipeline(m_context->device(), m_gridPipeline, nullptr);
     if (m_axesPipeline)      vkDestroyPipeline(m_context->device(), m_axesPipeline, nullptr);
+    if (m_skyPipeline)       vkDestroyPipeline(m_context->device(), m_skyPipeline, nullptr);
+    if (m_shadowPipeline)    vkDestroyPipeline(m_context->device(), m_shadowPipeline, nullptr);
     if (m_pipelineLayout)    vkDestroyPipelineLayout(m_context->device(), m_pipelineLayout, nullptr);
 
     m_wireframePipeline = VK_NULL_HANDLE;
     m_gridPipeline      = VK_NULL_HANDLE;
     m_axesPipeline      = VK_NULL_HANDLE;
+    m_skyPipeline       = VK_NULL_HANDLE;
+    m_shadowPipeline    = VK_NULL_HANDLE;
     m_pipelineLayout    = VK_NULL_HANDLE;
 }
 
@@ -710,7 +900,16 @@ void Renderer::updateGlobals(const Scene* scene, const Camera& camera, const Ren
     globals.proj      = camera.projection(aspectRatio());
     globals.viewProj  = globals.proj * globals.view;
     globals.cameraPos = glm::vec4(camera.position(), 1.0f);
-    globals.ambient   = glm::vec4(settings.ambientColor, settings.ambientIntensity);
+    globals.ambient = glm::vec4(settings.ambientColor, settings.ambientIntensity);
+
+    // The shaders evaluate the sky gradient themselves -- for the background,
+    // and per-normal for ambient -- so they need the parameters rather than a
+    // pre-averaged colour. skyGround.a doubles as the "use this for ambient"
+    // switch, which keeps the branch uniform across a draw.
+    const bool skyAmbient = settings.showSky && settings.skyDrivesAmbient;
+    globals.skyZenith  = glm::vec4(settings.skyZenith,  settings.skyIntensity);
+    globals.skyHorizon = glm::vec4(settings.skyHorizon, settings.skyTightness);
+    globals.skyGround  = glm::vec4(settings.skyGround,  skyAmbient ? 1.0f : 0.0f);
 
     uint32_t lightCount = 0;
 
@@ -766,6 +965,85 @@ void Renderer::updateGlobals(const Scene* scene, const Camera& camera, const Ren
         addLight(center + glm::vec3( 0.2f,  0.6f, -2.2f) * radius, glm::vec3( 0.0f, -0.3f,  1.0f),
                  LightType::Point, glm::vec3(1.0f, 0.9f, 0.8f), intensity * 0.35f, 0.0f, 0.0f, 0.0f);
     }
+
+    // Fit an orthographic frustum to the scene for the first directional light.
+    //
+    // Sized from the bounding sphere rather than the box so the extent does not
+    // change as the camera orbits -- a frustum that resizes makes the shadow
+    // edges crawl.
+    m_shadowCaster  = 0;
+    m_lightViewProj = glm::mat4(1.0f);
+
+    if (settings.shadows && m_shadowExtent > 0 && lightCount > 0)
+    {
+        glm::vec3 centre{0.0f};
+        float     radius = 1.0f;
+        if (scene && scene->bounds.valid())
+        {
+            centre = scene->bounds.center();
+            radius = glm::max(scene->bounds.radius(), 1e-3f);
+        }
+
+        // Prefer a real directional light. Falling back to the brightest of
+        // whatever else is present matters because nothing guarantees a
+        // directional light exists -- the built-in rig is three point lights,
+        // and plenty of imported scenes have none either. A point light far
+        // from a small model is close enough to directional for one shadow
+        // map, and a shadow from roughly the right angle beats no shadow.
+        int   caster    = -1;
+        float bestScore = -1.0f;
+
+        for (uint32_t i = 0; i < lightCount; ++i)
+        {
+            const bool directional =
+                static_cast<int>(globals.lights[i].positionType.w) ==
+                static_cast<int>(LightType::Directional);
+
+            const float score = globals.lights[i].colorIntensity.a +
+                                (directional ? 1000.0f : 0.0f);
+
+            if (score > bestScore) { bestScore = score; caster = static_cast<int>(i); }
+        }
+
+        if (caster >= 0)
+        {
+            const GpuLight& light = globals.lights[static_cast<size_t>(caster)];
+            const bool      directional =
+                static_cast<int>(light.positionType.w) ==
+                static_cast<int>(LightType::Directional);
+
+            glm::vec3 direction = directional
+                                      ? glm::vec3(light.directionRange)
+                                      : (centre - glm::vec3(light.positionType));
+
+            if (glm::length(direction) < 1e-5f) direction = glm::vec3(0.0f, -1.0f, 0.0f);
+            direction = glm::normalize(direction);
+
+            // Stand well clear of the scene so nothing clips the near plane.
+            const glm::vec3 eye = centre - direction * (radius * 2.5f);
+
+            // Any up vector will do except one parallel to the light.
+            const glm::vec3 up = (std::abs(direction.y) > 0.99f)
+                                     ? glm::vec3(0.0f, 0.0f, 1.0f)
+                                     : glm::vec3(0.0f, 1.0f, 0.0f);
+
+            const glm::mat4 lightView = glm::lookAt(eye, centre, up);
+            const glm::mat4 lightProj = glm::ortho(-radius * 1.2f, radius * 1.2f,
+                                                   -radius * 1.2f, radius * 1.2f,
+                                                   0.0f, radius * 5.0f);
+
+            m_lightViewProj = lightProj * lightView;
+            m_shadowCaster  = static_cast<uint32_t>(caster) + 1;
+        }
+    }
+
+    globals.lightViewProj = m_lightViewProj;
+    globals.shadowParams  = glm::vec4(static_cast<float>(m_shadowCaster),
+                                      settings.shadowDepthBias,
+                                      settings.shadowNormalBias,
+                                      m_shadowExtent > 0
+                                          ? 1.0f / static_cast<float>(m_shadowExtent)
+                                          : 0.0f);
 
     globals.params = glm::vec4(static_cast<float>(lightCount),
                                static_cast<float>(static_cast<int>(settings.debugView)),
@@ -1023,6 +1301,10 @@ void Renderer::endFrame(const Scene*          scene,
     VkImage     targetImage = swapchain.images[m_imageIndex];
     VkImageView targetView  = swapchain.views[m_imageIndex];
 
+    // Shadow map first: it is a separate render pass and its result is sampled
+    // by the main pass, so it has to be fully written before that begins.
+    recordShadowPass(cmd, settings);
+
     transitionImageLayout(cmd, targetImage, VK_IMAGE_LAYOUT_UNDEFINED,
                           VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     transitionImageLayout(cmd, m_context->depthImage(m_frameIndex), VK_IMAGE_LAYOUT_UNDEFINED,
@@ -1089,6 +1371,8 @@ void Renderer::endFrame(const Scene*          scene,
     const float sceneRadius = (scene && scene->bounds.valid())
                                   ? scene->bounds.radius()
                                   : 1.0f;
+
+    if (settings.showSky) recordSky(cmd, settings);
 
     recordScene(cmd, settings);
 
@@ -1202,6 +1486,88 @@ void Renderer::recordScene(VkCommandBuffer cmd, const RenderSettings& settings)
 
     record(m_opaqueDraws, false);
     record(m_blendedDraws, true);
+}
+
+void Renderer::recordShadowPass(VkCommandBuffer cmd, const RenderSettings& settings)
+{
+    if (m_shadowExtent == 0) return;
+
+    // Runs even with nothing to draw. The descriptor set points at this image
+    // every frame, so it has to be left in a layout the fragment shader can
+    // legally sample; a cleared map simply reads as "everything lit".
+    const bool draw = m_shadowCaster != 0 && m_gpuScene.valid() && !m_opaqueDraws.empty();
+
+    Image& map = m_shadowMaps[m_frameIndex];
+
+    transitionImageLayout(cmd, map.handle, VK_IMAGE_LAYOUT_UNDEFINED,
+                          VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+                          VK_IMAGE_ASPECT_DEPTH_BIT);
+
+    VkRenderingAttachmentInfo depthAttachment{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    depthAttachment.imageView              = map.view;
+    depthAttachment.imageLayout            = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+    depthAttachment.loadOp                 = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depthAttachment.storeOp                = VK_ATTACHMENT_STORE_OP_STORE;
+    depthAttachment.clearValue.depthStencil = {1.0f, 0};
+
+    VkRenderingInfo rendering{VK_STRUCTURE_TYPE_RENDERING_INFO};
+    rendering.renderArea           = {{0, 0}, {m_shadowExtent, m_shadowExtent}};
+    rendering.layerCount           = 1;
+    rendering.colorAttachmentCount = 0;          // depth only
+    rendering.pDepthAttachment     = &depthAttachment;
+
+    vkCmdBeginRendering(cmd, &rendering);
+
+    const VkViewport viewport{0.0f, 0.0f,
+                              static_cast<float>(m_shadowExtent),
+                              static_cast<float>(m_shadowExtent), 0.0f, 1.0f};
+    const VkRect2D scissor{{0, 0}, {m_shadowExtent, m_shadowExtent}};
+    vkCmdSetViewport(cmd, 0, 1, &viewport);
+    vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+    if (draw)
+    {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_shadowPipeline);
+
+        const VkDeviceSize offset = 0;
+        vkCmdBindVertexBuffers(cmd, 0, 1, &m_gpuScene.vertexBuffer.handle, &offset);
+        vkCmdBindIndexBuffer(cmd, m_gpuScene.indexBuffer.handle, 0, VK_INDEX_TYPE_UINT32);
+
+        // Opaque geometry only: a blended surface casting a solid shadow looks
+        // worse than it casting none.
+        for (const DrawItem& item : m_opaqueDraws)
+        {
+            vkCmdPushConstants(cmd, m_pipelineLayout,
+                               VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                               0, sizeof(PushConstants), &item.push);
+
+            vkCmdDrawIndexed(cmd, item.indexCount, 1, item.firstIndex, item.vertexOffset, 0);
+            ++m_stats.drawCalls;
+        }
+    }
+
+    vkCmdEndRendering(cmd);
+
+    // Hand it to the fragment shader for the main pass.
+    transitionImageLayout(cmd, map.handle, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+                          VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+                          VK_IMAGE_ASPECT_DEPTH_BIT);
+}
+
+void Renderer::recordSky(VkCommandBuffer cmd, const RenderSettings& settings)
+{
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_skyPipeline);
+
+    // Colours come from the globals block; only the sun toggle is per-draw.
+    PushConstants push{};
+    push.mrfs = glm::vec4(0.0f, 0.0f, 0.0f, settings.skySun ? 1.0f : 0.0f);
+
+    vkCmdPushConstants(cmd, m_pipelineLayout,
+                       VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                       0, sizeof(PushConstants), &push);
+
+    vkCmdDraw(cmd, 3, 1, 0, 0);
+    ++m_stats.drawCalls;
 }
 
 void Renderer::recordAxes(VkCommandBuffer cmd, const RenderSettings& settings,

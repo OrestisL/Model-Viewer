@@ -149,12 +149,48 @@ void main()
         vec3 kD   = (vec3(1.0) - F);
 
         vec3 radiance = li.colorIntensity.rgb * li.colorIntensity.a * attenuation;
-        Lo += (kD * diffuse / PI + spec) * radiance * NdotL;
+
+        // One shadow map, fitted to one light's frustum, so only that light
+        // is shadowed. Which light it is comes from the CPU side.
+        float shadow = 1.0;
+        if (i == int(G.shadowParams.x) - 1)
+            shadow = shadowFactor(vWorldPos, N, L);
+
+        Lo += (kD * diffuse / PI + spec) * radiance * NdotL * shadow;
     }
 
-    // Cheap hemispheric ambient so unlit sides never go fully black.
-    float hemi    = N.y * 0.5 + 0.5;
-    vec3  ambient = G.ambient.rgb * G.ambient.a * mix(0.4, 1.0, hemi) * diffuse;
+    // Ambient from the sky.
+    //
+    // Sampling the gradient along the normal, and along the reflection vector
+    // for specular, is a cheap stand-in for image-based lighting. It is not a
+    // real irradiance integral -- there is no cosine convolution and no mip
+    // chain -- but it means a model under a dusk sky actually picks up the
+    // warm horizon and a metal one reflects the right colours, instead of
+    // everything being tinted by one flat constant.
+    vec3 ambientDiffuse;
+    vec3 ambientSpecular;
+
+    if (G.skyGround.a > 0.5)
+    {
+        ambientDiffuse = skyColor(N);
+
+        // A rough surface gathers light from a wide cone, so bend the
+        // reflection vector back towards the normal as roughness rises. That
+        // approximates the blur a prefiltered environment map would provide.
+        vec3 R = reflect(-V, N);
+        ambientSpecular = skyColor(normalize(mix(R, N, roughness * roughness)));
+    }
+    else
+    {
+        float hemi      = N.y * 0.5 + 0.5;
+        ambientDiffuse  = G.ambient.rgb * mix(0.4, 1.0, hemi);
+        ambientSpecular = G.ambient.rgb;
+    }
+
+    // Grazing angles reflect more, and rough surfaces less sharply.
+    vec3  Famb = fresnelSchlick(NdotV, F0) * (1.0 - roughness);
+    vec3  kDamb = (vec3(1.0) - Famb) * (1.0 - metallic);
+    vec3  ambient = (kDamb * ambientDiffuse * diffuse + Famb * ambientSpecular) * G.ambient.a;
 
     vec3 emissive = pc.emissive.rgb;
     if ((flags & MV_FLAG_EMISSIVE_TEX) != 0)

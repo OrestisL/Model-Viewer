@@ -12,7 +12,10 @@ Builds with CMake on Linux and Windows.
 | Read FBX, OBJ, STL, glTF, GLB (+ DAE, PLY, 3DS, BLEND, …) | Assimp importer |
 | Read USD / USDA / USDC / USDZ | Assimp + tinyusdz, `-DMV_ENABLE_USD=ON` |
 | Draco-compressed glTF/GLB | Yes, on by default (`MV_ENABLE_DRACO`) |
-| meshopt-compressed glTF/GLB | **Not supported** — see Known gaps |
+| Configurable sky | Gradient sky with presets, optional sun disc |
+| Ambient light | Colour and strength configurable, or derived from the sky per-normal |
+| Shadows | PCF-filtered shadow map, cast by the brightest light in the scene |
+| meshopt-compressed glTF/GLB | **Not supported** — run `gltfpack -noq` to decompress first |
 | Skeletal + node animation playback | Timeline, scrub, loop, speed, clip selection |
 | Texture display | Base colour, metal-rough, normal, emissive, occlusion (embedded or external) |
 | Fallback colour with a colour wheel | Rendering panel → hue-wheel picker |
@@ -20,9 +23,10 @@ Builds with CMake on Linux and Windows.
 | Import cameras | Listed in the UI, click to adopt the camera's transform and FOV |
 | Export to other formats | Every Assimp export target: fbx, obj, stl, ply, gltf2, glb2, collada, x3d, 3ds, … |
 
-Plus: PBR metallic-roughness shading, infinite grid, orbit/pan/zoom camera, drag-and-drop
-loading, scene-graph inspector, material inspector, wireframe and normal-debug views,
-and an in-app log panel.
+Plus: PBR metallic-roughness shading, 4x MSAA, a line-geometry ground grid, RGB origin
+axes, a transform gumball with undo/redo, click-to-select picking, orbit/pan/zoom camera,
+drag-and-drop loading, scene-graph and material inspectors, wireframe and normal-debug
+views, and an in-app log panel.
 
 ---
 
@@ -224,77 +228,3 @@ importer means adding one file.
 refills each frame. Meshes without skins take the same path with an identity palette,
 which keeps the pipeline count down.
 
----
-
-## Shipping it
-
-### Prebuilt binaries
-
-`.github/workflows/build.yml` builds Release binaries for Linux and Windows on
-every push, and attaches packaged archives to a GitHub Release when a `v*` tag
-is pushed:
-
-```bash
-git tag v0.1.0 && git push origin v0.1.0
-```
-
-Windows is built on a real Windows runner with MSVC rather than cross-compiled,
-which avoids a class of problems that is not worth debugging for a release
-artefact. Dependencies are cached against the hash of `cmake/Dependencies.cmake`,
-so a run only pays the full ~20 minute dependency build when a pin changes.
-
-### What a user needs
-
-Only a GPU and driver supporting **Vulkan 1.3**. Everything else — Assimp,
-GLFW, ImGui, Draco — is compiled in, and `MV_STATIC_RUNTIME` (on in the `-dist`
-presets) links the C++ runtime statically, so there is no VC++ redistributable
-or `libstdc++` version to match.
-
-The Vulkan loader is deliberately **not** bundled: it belongs to the user's
-graphics driver, and shipping your own is a reliable way to break machines that
-differ from your own.
-
-### Cross-compiling to Windows from Linux
-
-Possible, but the harder route:
-
-```bash
-sudo apt install mingw-w64
-cmake -S . -B build/win-cross -G Ninja \
-      -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/mingw-w64.cmake \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DMV_VULKAN_SDK_WIN=/path/to/extracted/windows/VulkanSDK
-cmake --build build/win-cross
-```
-
-The obstacle is Vulkan, not the compiler: no Linux package ships the *Windows*
-Vulkan headers or the `vulkan-1` import library, so the toolchain file has to be
-pointed at an extracted Windows SDK. MinGW builds of Assimp and Draco also see
-far less testing than MSVC ones, and you cannot run the result without Wine.
-Use it for a quick check that Windows compilation still works; use CI for
-anything you intend to hand to someone.
-
-## Known gaps
-
-This is a solid foundation rather than a finished product. The honest list:
-
-- No shadow mapping. Lights affect shading but cast nothing.
-- No IBL/environment map — ambient is a flat term. Adding a prefiltered cubemap is the
-  single biggest visual improvement available.
-- `EXT_meshopt_compression` is not decoded. Assimp has no support for it, so such
-  files load with missing or empty geometry. `gltfpack -i in.glb -o out.glb -noq`
-  round-trips them to an uncompressed file that loads fine.
-- Morph targets are parsed but not evaluated.
-- No MSAA; the swapchain is the render target directly.
-- Animation blending between clips is not implemented (one active clip at a time).
-- Assimp's USD reader needs a `<cstdint>` force-include on GCC 13+ (handled in
-  `cmake/Dependencies.cmake`); tinyusdz relies on that header arriving transitively,
-  which modern libstdc++ no longer guarantees.
-- Assimp's USD reader is marked experimental upstream. Meshes, transforms and basic
-  UsdPreviewSurface materials come through; skinning, USD animation and instancing
-  are unreliable or unsupported.
-
-I have not been able to compile this in the environment I wrote it in — there is no
-Vulkan SDK or GPU here. The structure, CMake wiring and shader/host interface layouts
-are consistent, but budget an hour for first-build fixes, and build with validation
-layers on the first time you run it.

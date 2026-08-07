@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <system_error>
 #include <cmath>
 #include <vector>
@@ -99,8 +100,28 @@ void UiLayer::createContext(Window&)
     m_iniPath = configFilePath("imgui.ini");
     io.IniFilename = m_iniPath.empty() ? nullptr : m_iniPath.c_str();
 
-    // No saved layout means a first run, so lay the panels out for them.
-    m_resetLayout = m_iniPath.empty() || !std::filesystem::exists(m_iniPath);
+    // A saved layout takes precedence over the built-in default, so changing
+    // the default alone never reaches anyone who has already run the app. The
+    // stamp forces the new arrangement through once, after which the user's
+    // own adjustments are theirs to keep.
+    constexpr int kLayoutVersion = 2;
+
+    const std::string stampPath = configFilePath("layout-version");
+    int               stamp     = 0;
+
+    if (!stampPath.empty())
+    {
+        if (std::ifstream in{stampPath}) in >> stamp;
+    }
+
+    m_resetLayout = m_iniPath.empty() ||
+                    !std::filesystem::exists(m_iniPath) ||
+                    stamp != kLayoutVersion;
+
+    if (m_resetLayout && !stampPath.empty())
+    {
+        if (std::ofstream out{stampPath}) out << kLayoutVersion;
+    }
 
     applyTheme();
     m_contextCreated = true;
@@ -762,6 +783,71 @@ void UiLayer::drawViewerPanel(App& app)
         ImGui::ColorEdit3("Ambient",    &settings.ambientColor.x);
         ImGui::SliderFloat("Ambient intensity", &settings.ambientIntensity, 0.0f, 2.0f);
         ImGui::SliderFloat("Exposure", &settings.exposure, 0.05f, 4.0f);
+
+        ImGui::Checkbox("Sky", &settings.showSky);
+        ImGui::BeginDisabled(!settings.showSky);
+
+        ImGui::ColorEdit3("Zenith",  &settings.skyZenith.x);
+        ImGui::ColorEdit3("Horizon", &settings.skyHorizon.x);
+        ImGui::ColorEdit3("Ground",  &settings.skyGround.x);
+        ImGui::SliderFloat("Sky intensity", &settings.skyIntensity, 0.0f, 3.0f, "%.2f");
+        ImGui::SliderFloat("Horizon width", &settings.skyTightness, 0.05f, 3.0f, "%.2f");
+        ImGui::Checkbox("Sun disc", &settings.skySun);
+        helpMarker("Drawn along the first directional light, so the sky and the "
+                   "lighting agree about where the sun is.");
+        ImGui::Checkbox("Sky drives ambient", &settings.skyDrivesAmbient);
+        helpMarker("Lights the model from the sky gradient itself, sampled along "
+                   "the surface normal and the reflection vector. Turn it off to "
+                   "go back to a single flat ambient colour.");
+        ImGui::SliderFloat("Ambient strength", &settings.ambientIntensity, 0.0f, 2.0f, "%.2f");
+
+        struct SkyPreset
+        {
+            const char* name;
+            glm::vec3   zenith, horizon, ground;
+            float       intensity;
+        };
+        static constexpr SkyPreset kPresets[] = {
+            {"Day",      {0.20f, 0.36f, 0.62f}, {0.72f, 0.80f, 0.90f}, {0.26f, 0.24f, 0.22f}, 1.00f},
+            {"Overcast", {0.55f, 0.57f, 0.60f}, {0.78f, 0.79f, 0.80f}, {0.30f, 0.30f, 0.30f}, 0.90f},
+            {"Dusk",     {0.12f, 0.14f, 0.30f}, {0.90f, 0.48f, 0.28f}, {0.14f, 0.12f, 0.14f}, 0.85f},
+            {"Studio",   {0.30f, 0.30f, 0.32f}, {0.62f, 0.62f, 0.64f}, {0.18f, 0.18f, 0.19f}, 1.00f},
+            {"Night",    {0.02f, 0.03f, 0.07f}, {0.08f, 0.10f, 0.18f}, {0.02f, 0.02f, 0.03f}, 0.70f},
+        };
+
+        ImGui::TextDisabled("Presets");
+        for (int i = 0; i < IM_ARRAYSIZE(kPresets); ++i)
+        {
+            if (i > 0) ImGui::SameLine();
+            if (ImGui::SmallButton(kPresets[i].name))
+            {
+                settings.skyZenith    = kPresets[i].zenith;
+                settings.skyHorizon   = kPresets[i].horizon;
+                settings.skyGround    = kPresets[i].ground;
+                settings.skyIntensity = kPresets[i].intensity;
+            }
+        }
+
+        ImGui::EndDisabled();
+
+        ImGui::Separator();
+        ImGui::Checkbox("Shadows", &settings.shadows);
+        helpMarker("Cast by the first directional light. If nothing casts, check "
+                   "that a directional light exists in Lighting.");
+        ImGui::BeginDisabled(!settings.shadows);
+        ImGui::SliderFloat("Depth bias",  &settings.shadowDepthBias, 0.0f, 0.02f, "%.4f");
+        helpMarker("Too low gives acne (dark speckling on lit surfaces); too high "
+                   "detaches shadows from whatever casts them.");
+        ImGui::SliderFloat("Normal bias", &settings.shadowNormalBias, 0.0f, 8.0f, "%.2f");
+
+        const int caster = app.renderer().shadowCaster();
+        if (caster < 0)
+            ImGui::TextColored(ImVec4(1.0f, 0.72f, 0.25f, 1.0f), "No light is casting");
+        else
+            ImGui::TextDisabled("Casting: light %d  |  %ux%u map", caster,
+                                app.renderer().shadowResolution(),
+                                app.renderer().shadowResolution());
+        ImGui::EndDisabled();
 
         ImGui::Separator();
         ImGui::Checkbox("Show origin axes", &settings.showAxes);

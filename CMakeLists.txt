@@ -107,6 +107,9 @@ mv_compile_shaders(ModelViewer
     shaders/mesh.frag
     shaders/grid.vert
     shaders/grid.frag
+    shaders/shadow.vert
+    shaders/sky.vert
+    shaders/sky.frag
     shaders/axes.vert
     shaders/axes.frag)
 

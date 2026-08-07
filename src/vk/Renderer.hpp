@@ -53,6 +53,25 @@ struct RenderSettings
     /// are seeing comes from the renderer or from the display.
     int       frameRateCap = 0;
 
+    /// Procedural gradient sky. Replaces the flat clear colour and gives
+    /// reflective materials something to sit against.
+    /// Shadow mapping for the first directional light.
+    bool      shadows          = true;
+    /// Changing this recreates the shadow map, so it is not a per-frame knob.
+    int       shadowResolution = 2048;
+    float     shadowDepthBias  = 0.0015f;
+    float     shadowNormalBias = 1.6f;
+
+    bool      showSky      = true;
+    glm::vec3 skyZenith{0.20f, 0.36f, 0.62f};
+    glm::vec3 skyHorizon{0.72f, 0.80f, 0.90f};
+    glm::vec3 skyGround{0.26f, 0.24f, 0.22f};
+    float     skyIntensity = 1.0f;
+    float     skyTightness = 0.55f;
+    bool      skySun       = true;
+    /// Drive the ambient term from the sky rather than setting it by hand.
+    bool      skyDrivesAmbient = true;
+
     bool      showGrid = true;
     // The grid can draw its own coloured X/Z lines across the whole plane.
     // Off by default now that real 3D axis arrows sit at the origin: two
@@ -185,6 +204,13 @@ private:
                        const Camera& camera, const RenderSettings& settings);
 
     void recordScene(VkCommandBuffer cmd, const RenderSettings& settings);
+    void recordSky(VkCommandBuffer cmd, const RenderSettings& settings);
+
+    /// Depth-only pass from the casting light. Runs before the main pass and
+    /// writes the shadow map the fragment shader then samples.
+    void recordShadowPass(VkCommandBuffer cmd, const RenderSettings& settings);
+    void createShadowResources(uint32_t resolution);
+    void destroyShadowResources();
     void recordGrid(VkCommandBuffer cmd, const RenderSettings& settings);
 
     /// Rebuilds the grid line mesh when the cell size or extent changes.
@@ -216,6 +242,24 @@ private:
     VkPipeline m_wireframePipeline = VK_NULL_HANDLE;
     VkPipeline m_gridPipeline      = VK_NULL_HANDLE;
     VkPipeline m_axesPipeline      = VK_NULL_HANDLE;
+    VkPipeline m_skyPipeline       = VK_NULL_HANDLE;
+    VkPipeline m_shadowPipeline    = VK_NULL_HANDLE;
+
+    std::array<Image, kFramesInFlight> m_shadowMaps{};
+    VkSampler m_shadowSampler   = VK_NULL_HANDLE;
+    uint32_t  m_shadowExtent    = 0;
+    /// Index of the light the shadow map was fitted to, plus one; 0 means none
+    /// was found this frame and the pass is skipped.
+    uint32_t  m_shadowCaster    = 0;
+
+public:
+    /// Which light the shadow map was fitted to this frame, or -1 for none.
+    /// Exposed so the UI can say when nothing is casting.
+    int  shadowCaster() const { return static_cast<int>(m_shadowCaster) - 1; }
+    uint32_t shadowResolution() const { return m_shadowExtent; }
+
+private:
+    glm::mat4 m_lightViewProj{1.0f};
 
     Buffer   m_gridMesh;
     uint32_t m_gridVertexCount = 0;
