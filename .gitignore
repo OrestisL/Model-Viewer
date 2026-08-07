@@ -1,0 +1,14 @@
+build/
+out/
+cmake-build-*/
+.vs/
+.vscode/
+.idea/
+CMakeUserPresets.json
+*.spv
+*.user
+compile_commands.json
+*.patch
+*.rej
+*.orig
+.cache/

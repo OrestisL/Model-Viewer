@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=ModelViewer
+GenericName=3D Model Viewer
+Comment=View, inspect and convert 3D models
+Exec=@MV_EXEC_PATH@ %f
+TryExec=@MV_EXEC_PATH@
+Icon=modelviewer
+Terminal=false
+Categories=Graphics;3DGraphics;Viewer;
+StartupNotify=true
+StartupWMClass=modelviewer
+MimeType=model/gltf+json;model/gltf-binary;model/obj;model/stl;model/vnd.collada+xml;model/x.fbx;model/x.ply;model/x.usd;model/vnd.usdz+zip;model/x.3ds;model/x.off;

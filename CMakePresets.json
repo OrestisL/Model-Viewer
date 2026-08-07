@@ -1,0 +1,159 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 24,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "linux-debug",
+      "inherits": "base",
+      "displayName": "Linux Debug (validation on)",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "MV_ENABLE_VALIDATION": "ON"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      }
+    },
+    {
+      "name": "linux-release",
+      "inherits": "base",
+      "displayName": "Linux RelWithDebInfo",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      }
+    },
+    {
+      "name": "linux-usd",
+      "inherits": "linux-release",
+      "displayName": "Linux RelWithDebInfo + USD",
+      "cacheVariables": {
+        "MV_ENABLE_USD": "ON"
+      }
+    },
+    {
+      "name": "windows-msvc",
+      "inherits": "base",
+      "displayName": "Windows Visual Studio 2022 x64",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    },
+    {
+      "name": "windows-ninja",
+      "inherits": "base",
+      "displayName": "Windows Ninja RelWithDebInfo",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    },
+    {
+      "name": "linux-dist",
+      "inherits": "base",
+      "displayName": "Linux Release (redistributable)",
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "MV_ENABLE_VALIDATION": "OFF",
+        "MV_STATIC_RUNTIME": "ON",
+        "CMAKE_INTERPROCEDURAL_OPTIMIZATION": "ON"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      }
+    },
+    {
+      "name": "windows-dist",
+      "inherits": "base",
+      "displayName": "Windows Release (redistributable)",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "cacheVariables": {
+        "MV_ENABLE_VALIDATION": "OFF",
+        "MV_STATIC_RUNTIME": "ON"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "linux-debug",
+      "configurePreset": "linux-debug"
+    },
+    {
+      "name": "linux-release",
+      "configurePreset": "linux-release"
+    },
+    {
+      "name": "linux-usd",
+      "configurePreset": "linux-usd"
+    },
+    {
+      "name": "windows-msvc",
+      "configurePreset": "windows-msvc",
+      "configuration": "RelWithDebInfo"
+    },
+    {
+      "name": "windows-ninja",
+      "configurePreset": "windows-ninja"
+    },
+    {
+      "name": "linux-dist",
+      "configurePreset": "linux-dist"
+    },
+    {
+      "name": "windows-dist",
+      "configurePreset": "windows-dist",
+      "configuration": "Release"
+    }
+  ],
+  "packagePresets": [
+    {
+      "name": "linux-dist",
+      "configurePreset": "linux-dist"
+    },
+    {
+      "name": "windows-dist",
+      "configurePreset": "windows-dist",
+      "configurations": [
+        "Release"
+      ]
+    }
+  ]
+}

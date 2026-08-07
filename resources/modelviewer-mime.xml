@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  MIME type definitions for the 3D formats ModelViewer reads.
+
+  Most 3D formats have no registered media type, and a stock Linux system
+  therefore has no idea what a .fbx or a .usd is — which means there is
+  nothing for a desktop entry to associate itself with. This package declares
+  the missing ones and re-declares the standard ones, so association works the
+  same way regardless of how new the distribution's shared-mime-info is.
+  Duplicate declarations are merged rather than conflicting.
+
+  Where a format has a reliable signature, a magic rule is included: content
+  sniffing beats extensions, and several of these extensions are ambiguous
+  (.usd is also used by other tools, and glTF's .gltf is plain JSON).
+
+  Install to  <prefix>/share/mime/packages/  then run update-mime-database.
+-->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+
+  <!-- ==================== glTF ==================== -->
+  <mime-type type="model/gltf+json">
+    <comment>glTF model</comment>
+    <sub-class-of type="application/json"/>
+    <glob pattern="*.gltf"/>
+  </mime-type>
+
+  <mime-type type="model/gltf-binary">
+    <comment>glTF binary model</comment>
+    <glob pattern="*.glb"/>
+    <magic priority="60">
+      <match type="string" value="glTF" offset="0"/>
+    </magic>
+  </mime-type>
+
+  <!-- ==================== Wavefront ==================== -->
+  <mime-type type="model/obj">
+    <comment>Wavefront OBJ model</comment>
+    <glob pattern="*.obj"/>
+  </mime-type>
+
+  <mime-type type="model/mtl">
+    <comment>Wavefront material library</comment>
+    <glob pattern="*.mtl"/>
+  </mime-type>
+
+  <!-- ==================== STL ==================== -->
+  <mime-type type="model/stl">
+    <comment>STL model</comment>
+    <glob pattern="*.stl"/>
+    <magic priority="50">
+      <match type="string" value="solid" offset="0"/>
+    </magic>
+  </mime-type>
+
+  <!-- ==================== COLLADA ==================== -->
+  <mime-type type="model/vnd.collada+xml">
+    <comment>COLLADA model</comment>
+    <sub-class-of type="application/xml"/>
+    <glob pattern="*.dae"/>
+  </mime-type>
+
+  <!-- ==================== FBX ==================== -->
+  <!--
+    Autodesk never registered a media type. The binary variant has a very
+    distinctive header, so it is detected by content; ASCII FBX falls back to
+    the extension.
+  -->
+  <mime-type type="model/x.fbx">
+    <comment>Autodesk FBX model</comment>
+    <glob pattern="*.fbx"/>
+    <magic priority="80">
+      <match type="string" value="Kaydara FBX Binary" offset="0"/>
+    </magic>
+  </mime-type>
+
+  <!-- ==================== PLY ==================== -->
+  <mime-type type="model/x.ply">
+    <comment>Stanford PLY model</comment>
+    <glob pattern="*.ply"/>
+    <magic priority="80">
+      <match type="string" value="ply" offset="0"/>
+    </magic>
+  </mime-type>
+
+  <!-- ==================== USD ==================== -->
+  <mime-type type="model/x.usd">
+    <comment>Universal Scene Description</comment>
+    <glob pattern="*.usd"/>
+    <glob pattern="*.usda"/>
+    <glob pattern="*.usdc"/>
+    <!-- Crate (binary) USD. ASCII .usda starts with "#usda". -->
+    <magic priority="80">
+      <match type="string" value="PXR-USDC" offset="0"/>
+      <match type="string" value="#usda" offset="0"/>
+    </magic>
+  </mime-type>
+
+  <mime-type type="model/vnd.usdz+zip">
+    <comment>USDZ package</comment>
+    <sub-class-of type="application/zip"/>
+    <glob pattern="*.usdz"/>
+  </mime-type>
+
+  <!-- ==================== Misc ==================== -->
+  <mime-type type="model/x.3ds">
+    <comment>3D Studio model</comment>
+    <glob pattern="*.3ds"/>
+  </mime-type>
+
+  <mime-type type="model/x.off">
+    <comment>Object File Format model</comment>
+    <glob pattern="*.off"/>
+  </mime-type>
+
+</mime-info>
