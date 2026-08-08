@@ -148,6 +148,54 @@ void UiLayer::applyTheme()
     ui::applyStyle(m_theme, m_accent, m_uiScale);
 }
 
+std::vector<uint8_t> UiLayer::visibilitySnapshot(const Scene& scene) const
+{
+    std::vector<uint8_t> snapshot(scene.nodes.size());
+    for (size_t i = 0; i < scene.nodes.size(); ++i)
+        snapshot[i] = scene.nodes[i].visible ? 1u : 0u;
+    return snapshot;
+}
+
+void UiLayer::recordVisibilityEdit(App& app, const std::vector<uint8_t>& before,
+                                   const char* label)
+{
+    const Scene& scene = app.scene();
+
+    VisibilityEdit edit;
+    edit.label = label;
+
+    for (size_t i = 0; i < scene.nodes.size() && i < before.size(); ++i)
+    {
+        const bool now = scene.nodes[i].visible;
+        if ((before[i] != 0) == now) continue;
+
+        VisibilityChange change;
+        change.node   = static_cast<int>(i);
+        change.before = before[i] != 0;
+        change.after  = now;
+        edit.changes.push_back(change);
+    }
+
+    app.history().push(std::move(edit));   // empty edits are dropped inside
+}
+
+void UiLayer::applyUndoRedo(App& app, bool redoInstead)
+{
+    const std::vector<uint8_t> before = visibilitySnapshot(app.scene());
+
+    const int touched = redoInstead
+                            ? app.history().redo(app.scene(), app.animator())
+                            : app.history().undo(app.scene(), app.animator());
+
+    // Reveal what just changed rather than leaving the gumball elsewhere.
+    if (touched >= 0) m_selectedNode = touched;
+
+    // If visibility moved, any isolate snapshot describes a state that no
+    // longer exists -- leaving it would make the next I restore nonsense.
+    if (m_isolated && visibilitySnapshot(app.scene()) != before)
+        clearVisibilityState();
+}
+
 void UiLayer::clearVisibilityState()
 {
     m_isolated = false;
@@ -160,6 +208,8 @@ void UiLayer::toggleIsolate(App& app)
 
     if (m_isolated)
     {
+        const std::vector<uint8_t> before = visibilitySnapshot(scene);
+
         // Restore rather than show-all: anything hidden before isolating was
         // hidden deliberately and should stay that way.
         for (size_t i = 0; i < scene.nodes.size() && i < m_visibilityBeforeIsolate.size(); ++i)
@@ -167,6 +217,7 @@ void UiLayer::toggleIsolate(App& app)
 
         m_isolated = false;
         m_visibilityBeforeIsolate.clear();
+        recordVisibilityEdit(app, before, "Leave isolate");
         log::info("Isolate off");
         return;
     }
@@ -181,8 +232,10 @@ void UiLayer::toggleIsolate(App& app)
     for (size_t i = 0; i < scene.nodes.size(); ++i)
         m_visibilityBeforeIsolate[i] = scene.nodes[i].visible ? 1u : 0u;
 
+    const std::vector<uint8_t> before = visibilitySnapshot(scene);
     scene.isolate(m_selectedNode);
     m_isolated = true;
+    recordVisibilityEdit(app, before, "Isolate");
 
     const Node& node = scene.nodes[static_cast<size_t>(m_selectedNode)];
     log::info("Isolated ", node.name.empty() ? "<unnamed>" : node.name,
@@ -211,9 +264,10 @@ void UiLayer::handleVisibilityShortcuts(App& app)
     // strand anything hidden while nothing was selected.
     if (io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_H, false))
     {
+        const std::vector<uint8_t> before = visibilitySnapshot(app.scene());
         app.scene().showAll();
-        m_isolated = false;
-        m_visibilityBeforeIsolate.clear();
+        clearVisibilityState();
+        recordVisibilityEdit(app, before, "Show all");
         log::info("All meshes shown");
         return;
     }
@@ -228,8 +282,12 @@ void UiLayer::handleVisibilityShortcuts(App& app)
             return;
         }
 
+        const std::vector<uint8_t> before = visibilitySnapshot(scene);
+
         Node& node   = scene.nodes[static_cast<size_t>(m_selectedNode)];
         node.visible = false;
+
+        recordVisibilityEdit(app, before, "Hide mesh");
 
         log::info("Hid ", node.name.empty() ? "<unnamed>" : node.name,
                   " (Shift+H shows everything again)");
@@ -415,12 +473,8 @@ void UiLayer::handleUndoShortcuts(App& app)
     const bool redo = (ImGui::IsKeyPressed(ImGuiKey_Y, false)) ||
                       (ImGui::IsKeyPressed(ImGuiKey_Z, false) && io.KeyShift);
 
-    int touched = -1;
-    if (undo)      touched = app.history().undo(app.scene(), app.animator());
-    else if (redo) touched = app.history().redo(app.scene(), app.animator());
-
-    // Reveal what just changed rather than leaving the gumball elsewhere.
-    if (touched >= 0) m_selectedNode = touched;
+    if (undo)      applyUndoRedo(app, false);
+    else if (redo) applyUndoRedo(app, true);
 }
 
 void UiLayer::drawGizmoSettings(App& app)
@@ -688,15 +742,9 @@ void UiLayer::drawMenuBar(App& app)
         std::snprintf(redoText, sizeof(redoText), "Redo %s", redoName ? redoName : "");
 
         if (ImGui::MenuItem(undoText, "Ctrl+Z", false, history.canUndo()))
-        {
-            const int touched = history.undo(app.scene(), app.animator());
-            if (touched >= 0) m_selectedNode = touched;
-        }
+            applyUndoRedo(app, false);
         if (ImGui::MenuItem(redoText, "Ctrl+Shift+Z", false, history.canRedo()))
-        {
-            const int touched = history.redo(app.scene(), app.animator());
-            if (touched >= 0) m_selectedNode = touched;
-        }
+            applyUndoRedo(app, true);
 
         ImGui::Separator();
         ImGui::BeginDisabled(history.depth() == 0);
@@ -1147,7 +1195,12 @@ void UiLayer::drawNodeTree(App& app, int nodeIndex)
     // Per-row visibility toggle, so a hidden node can be brought back without
     // resorting to Shift+H.
     ImGui::PushID(nodeIndex);
-    if (ImGui::SmallButton(node.visible ? "o" : "-")) node.visible = !node.visible;
+    if (ImGui::SmallButton(node.visible ? "o" : "-"))
+    {
+        const std::vector<uint8_t> before = visibilitySnapshot(scene);
+        node.visible = !node.visible;
+        recordVisibilityEdit(app, before, node.visible ? "Show mesh" : "Hide mesh");
+    }
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip(node.visible ? "Visible - click to hide"
                                        : "Hidden - click to show");
@@ -1250,8 +1303,10 @@ void UiLayer::drawModelPanel(App& app)
             // Through app rather than the local: this panel's reference is
             // const because everything else here only reads, and that is worth
             // keeping.
+            const std::vector<uint8_t> before = visibilitySnapshot(app.scene());
             app.scene().showAll();
             clearVisibilityState();
+            recordVisibilityEdit(app, before, "Show all");
         }
 
         // Isolate hides most of the tree, which looks a lot like a broken

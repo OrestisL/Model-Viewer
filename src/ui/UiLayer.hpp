@@ -42,6 +42,17 @@ private:
     void handleViewportPicking(App& app);
     void handleVisibilityShortcuts(App& app);
     void toggleIsolate(App& app);
+    void applyUndoRedo(App& app, bool redoInstead);
+
+    /// Snapshot of every node's visibility, for diffing an operation against.
+    std::vector<uint8_t> visibilitySnapshot(const Scene& scene) const;
+
+    /// Diffs the scene against `before` and records the difference as one
+    /// undoable edit. Recording the diff rather than the intent means every
+    /// visibility operation -- hide, show all, isolate -- goes through the
+    /// same path and none can be forgotten.
+    void recordVisibilityEdit(App& app, const std::vector<uint8_t>& before,
+                              const char* label);
 
 public:
     /// Drops isolate state. Node indices from a previous model would restore

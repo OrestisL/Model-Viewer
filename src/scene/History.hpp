@@ -33,6 +33,25 @@ struct TransformEdit
     std::string   label = "Transform";
 };
 
+/// One node's visibility flipping.
+struct VisibilityChange
+{
+    int  node   = -1;
+    bool before = true;
+    bool after  = true;
+};
+
+/// A visibility edit, which may cover many nodes at once.
+///
+/// Hiding one mesh touches one node; isolating or showing everything touches
+/// most of them. Only nodes that actually changed are recorded, so the common
+/// single-mesh case stays a single entry rather than a full scene snapshot.
+struct VisibilityEdit
+{
+    std::vector<VisibilityChange> changes;
+    std::string                   label = "Visibility";
+};
+
 /// Linear undo history with a cursor.
 ///
 /// Entries below the cursor have been applied; entries at or above it have
@@ -49,6 +68,10 @@ public:
     /// stack, which happens whenever a drag is started and released without
     /// actually moving anything.
     void push(TransformEdit edit);
+
+    /// Records a visibility edit that has already been applied. Edits with no
+    /// actual changes are dropped.
+    void push(VisibilityEdit edit);
 
     bool canUndo() const { return m_cursor > 0; }
     bool canRedo() const { return m_cursor < m_entries.size(); }
@@ -72,11 +95,25 @@ private:
     /// tiny, so this is generous.
     static constexpr size_t kCapacity = 256;
 
+    /// Two kinds is not enough to justify a polymorphic command hierarchy;
+    /// a tag plus the two payloads keeps the whole thing readable in one file.
+    struct Entry
+    {
+        enum class Kind { Transform, Visibility };
+
+        Kind           kind = Kind::Transform;
+        std::string    label;
+        TransformEdit  transform;
+        VisibilityEdit visibility;
+    };
+
     void applyTo(Scene& scene, Animator& animator, int node,
                  const NodeTransform& transform) const;
+    void applyVisibility(Scene& scene, const VisibilityEdit& edit, bool forward) const;
+    void record(Entry entry);
 
-    std::vector<TransformEdit> m_entries;
-    size_t                     m_cursor = 0;
+    std::vector<Entry> m_entries;
+    size_t             m_cursor = 0;
 };
 
 /// Reads a node's current transform, for capturing before/after states.

@@ -17,6 +17,7 @@ Builds with CMake on Linux and Windows.
 | Unlit mode | Bypasses all lighting for models with baked-in lighting |
 | Per-node visibility | Hide meshes with `H`, restore all with `Shift`+`H`, or toggle in the tree |
 | Isolate selection | `I` shows only the selection and its children; leaving restores what was showing before |
+| Undo / redo | `Ctrl`+`Z` / `Ctrl`+`Shift`+`Z` for transforms and visibility changes |
 | Shadows | PCF-filtered shadow map, cast by the brightest light in the scene |
 | meshopt-compressed glTF/GLB | **Not supported** — run `gltfpack -noq` to decompress first |
 | Skeletal + node animation playback | Timeline, scrub, loop, speed, clip selection |
