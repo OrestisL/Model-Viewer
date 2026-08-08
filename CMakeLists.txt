@@ -63,6 +63,7 @@ set(MV_SOURCES
     src/scene/Animator.cpp
     src/scene/UsdBackend.cpp
 
+    src/ui/Theme.cpp
     src/ui/UiLayer.cpp
     src/ui/FileBrowser.cpp
 )

@@ -4,6 +4,7 @@
 
 #include "scene/History.hpp"
 #include "ui/FileBrowser.hpp"
+#include "ui/Theme.hpp"
 
 namespace mv {
 
@@ -101,6 +102,11 @@ private:
     /// Side panel docking. The panels live in one dock node pinned to an edge;
     /// the central node is left empty and transparent so the 3D view shows
     /// through it and still receives mouse input.
+    ui::ThemeStyle m_theme    = ui::ThemeStyle::Dark;
+    ImVec4         m_accent   = ImVec4(0.29f, 0.56f, 0.95f, 1.0f);
+    float          m_uiScale  = 1.0f;
+    std::string    m_fontPath;
+
     bool         m_showPanel   = true;
     bool         m_panelOnLeft = true;
     bool         m_resetLayout = false;

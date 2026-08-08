@@ -123,6 +123,15 @@ void UiLayer::createContext(Window&)
         if (std::ofstream out{stampPath}) out << kLayoutVersion;
     }
 
+    // The display scale is not known here, so the font is loaded at a size
+    // that stays legible unscaled and sharpens rather than blurs when the UI
+    // scale is raised.
+    m_fontPath = ui::loadUiFont(17.0f);
+    if (m_fontPath.empty())
+        log::warn("No system UI font found; falling back to the built-in bitmap font");
+    else
+        log::info("UI font: ", m_fontPath);
+
     applyTheme();
     m_contextCreated = true;
 }
@@ -136,29 +145,7 @@ void UiLayer::destroyContext()
 
 void UiLayer::applyTheme()
 {
-    ImGui::StyleColorsDark();
-
-    ImGuiStyle& style = ImGui::GetStyle();
-    style.WindowRounding    = 6.0f;
-    style.FrameRounding     = 4.0f;
-    style.GrabRounding      = 4.0f;
-    style.PopupRounding     = 6.0f;
-    style.ScrollbarRounding = 6.0f;
-    style.WindowPadding     = ImVec2(10, 10);
-    style.FramePadding      = ImVec2(8, 4);
-    style.ItemSpacing       = ImVec2(8, 6);
-    style.WindowTitleAlign  = ImVec2(0.02f, 0.5f);
-
-    ImVec4* colors = style.Colors;
-    colors[ImGuiCol_WindowBg]       = ImVec4(0.09f, 0.09f, 0.11f, 0.96f);
-    colors[ImGuiCol_TitleBgActive]  = ImVec4(0.16f, 0.17f, 0.22f, 1.00f);
-    colors[ImGuiCol_FrameBg]        = ImVec4(0.16f, 0.17f, 0.20f, 1.00f);
-    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.22f, 0.24f, 0.30f, 1.00f);
-    colors[ImGuiCol_Button]         = ImVec4(0.20f, 0.23f, 0.32f, 1.00f);
-    colors[ImGuiCol_ButtonHovered]  = ImVec4(0.28f, 0.33f, 0.46f, 1.00f);
-    colors[ImGuiCol_Header]         = ImVec4(0.22f, 0.26f, 0.36f, 1.00f);
-    colors[ImGuiCol_CheckMark]      = ImVec4(0.45f, 0.72f, 1.00f, 1.00f);
-    colors[ImGuiCol_SliderGrab]     = ImVec4(0.38f, 0.60f, 0.92f, 1.00f);
+    ui::applyStyle(m_theme, m_accent, m_uiScale);
 }
 
 void UiLayer::handleVisibilityShortcuts(App& app)
@@ -763,6 +750,51 @@ void UiLayer::drawViewerPanel(App& app)
         if (ImGui::SmallButton("Clay"))         settings.defaultColor = {0.82f, 0.52f, 0.40f};
         ImGui::SameLine();
         if (ImGui::SmallButton("White"))        settings.defaultColor = {0.95f, 0.95f, 0.95f};
+    }
+
+    if (ImGui::CollapsingHeader("Appearance"))
+    {
+        int theme = static_cast<int>(m_theme);
+        const char* names[static_cast<int>(ui::ThemeStyle::Count)];
+        for (int i = 0; i < static_cast<int>(ui::ThemeStyle::Count); ++i)
+            names[i] = ui::themeStyleName(static_cast<ui::ThemeStyle>(i));
+
+        if (ImGui::Combo("Theme", &theme, names, static_cast<int>(ui::ThemeStyle::Count)))
+        {
+            m_theme = static_cast<ui::ThemeStyle>(theme);
+            applyTheme();
+        }
+
+        if (ImGui::ColorEdit3("Accent", &m_accent.x, ImGuiColorEditFlags_NoInputs))
+            applyTheme();
+        helpMarker("Drives every interactive colour at once -- checkmarks, "
+                   "sliders, selected tabs, resize grips.");
+
+        // Applied on release: rebuilding the style every frame mid-drag makes
+        // the control jump around under the cursor as the metrics change.
+        ImGui::SliderFloat("UI scale", &m_uiScale, 0.75f, 2.0f, "%.2fx");
+        if (ImGui::IsItemDeactivatedAfterEdit()) applyTheme();
+
+        static const struct { const char* name; ImVec4 colour; } kAccents[] = {
+            {"Blue",   ImVec4(0.29f, 0.56f, 0.95f, 1.0f)},
+            {"Teal",   ImVec4(0.16f, 0.71f, 0.68f, 1.0f)},
+            {"Violet", ImVec4(0.58f, 0.45f, 0.93f, 1.0f)},
+            {"Amber",  ImVec4(0.95f, 0.66f, 0.20f, 1.0f)},
+            {"Rose",   ImVec4(0.93f, 0.40f, 0.52f, 1.0f)},
+        };
+        for (int i = 0; i < IM_ARRAYSIZE(kAccents); ++i)
+        {
+            if (i > 0) ImGui::SameLine();
+            if (ImGui::SmallButton(kAccents[i].name))
+            {
+                m_accent = kAccents[i].colour;
+                applyTheme();
+            }
+        }
+
+        if (!m_fontPath.empty())
+            ImGui::TextDisabled("Font: %s",
+                                m_fontPath.substr(m_fontPath.find_last_of("/\\") + 1).c_str());
     }
 
     if (ImGui::CollapsingHeader("Controls", ImGuiTreeNodeFlags_DefaultOpen))
