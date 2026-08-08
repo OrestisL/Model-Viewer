@@ -165,13 +165,48 @@ jobs:
         with:
           path: artifacts
 
+      # Checksums let anyone verify a download without trusting the transport.
+      - name: Collect archives and checksums
+        run: |
+          mkdir -p release
+          find artifacts -type f \( -name '*.tar.gz' -o -name '*.zip' \) -exec cp {} release/ \;
+          cd release
+          sha256sum * > SHA256SUMS.txt
+          ls -lh
+
       - uses: softprops/action-gh-release@v3
         with:
-          files: artifacts/**/*
+          files: release/*
           generate_release_notes: true
           body: |
-            Requires a GPU and driver supporting **Vulkan 1.3**.
+            ## Downloads
 
-            The Vulkan loader is not bundled: it comes from your graphics
-            driver. If the application reports no suitable device, update your
-            driver first.
+            | Platform | File |
+            |---|---|
+            | Linux x86_64 | `ModelViewer-*-Linux-x86_64.tar.gz` |
+            | Windows x64  | `ModelViewer-*-Windows-AMD64.zip` |
+
+            Verify with `sha256sum -c SHA256SUMS.txt`.
+
+            ## Requirements
+
+            A GPU and driver supporting **Vulkan 1.3**. The Vulkan loader is
+            deliberately not bundled -- it belongs to your graphics driver. If
+            the application reports no suitable device, update the driver first.
+
+            Everything else (Assimp, GLFW, Dear ImGui, Draco) is linked in, and
+            the C++ runtime is static, so there is no redistributable to
+            install.
+
+            ## Running it
+
+            **Linux** -- extract and run `bin/ModelViewer`. To register it as
+            the handler for 3D files and get a menu entry:
+
+            ```bash
+            bash scripts/register-file-associations.sh
+            ```
+
+            **Windows** -- extract and run `bin/ModelViewer.exe`. SmartScreen
+            will warn that the publisher is unknown, because the binary is not
+            code-signed; choose *More info* then *Run anyway*.
