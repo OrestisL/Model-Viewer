@@ -8,6 +8,10 @@ on:
   workflow_dispatch:
 
 # Cancel superseded runs on the same branch.
+env:
+  # Headers, loader and glslang are all tagged together by Khronos.
+  VULKAN_TAG: vulkan-sdk-1.4.357.0
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -61,14 +65,57 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # The SDK supplies the Vulkan headers, the import library and glslc.
-      # There is no distribution package equivalent on Windows.
-      - name: Install Vulkan SDK
-        uses: humbletim/setup-vulkan-sdk@v1.2.1
+      # Vulkan from Khronos sources rather than the LunarG SDK.
+      #
+      # The setup-vulkan-sdk action builds glslang with ENABLE_OPT left at its
+      # default of ON, which requires SPIRV-Tools -- and the action never
+      # fetches them, so its configure step fails outright. Building the three
+      # pieces here is explicit, cacheable, comes entirely from Khronos, and
+      # avoids a 1 GB installer for the handful of files actually needed:
+      # headers, vulkan-1.lib to link against, and a GLSL compiler.
+      - name: Cache Vulkan
+        id: vulkan-cache
+        uses: actions/cache@v6
         with:
-          vulkan-query-version: latest
-          vulkan-components: Vulkan-Headers, Vulkan-Loader, Glslang
-          vulkan-use-cache: true
+          path: ${{ github.workspace }}/vulkan
+          key: vulkan-${{ env.VULKAN_TAG }}-windows
+
+      - name: Build Vulkan headers, loader and glslang
+        if: steps.vulkan-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $prefix = "${{ github.workspace }}/vulkan"
+          $tag    = "${{ env.VULKAN_TAG }}"
+
+          git clone --depth 1 --branch $tag https://github.com/KhronosGroup/Vulkan-Headers.git vk-headers
+          cmake -S vk-headers -B vk-headers/build -DCMAKE_INSTALL_PREFIX="$prefix"
+          cmake --install vk-headers/build
+
+          git clone --depth 1 --branch $tag https://github.com/KhronosGroup/Vulkan-Loader.git vk-loader
+          cmake -S vk-loader -B vk-loader/build -A x64 `
+                -DCMAKE_INSTALL_PREFIX="$prefix" `
+                -DCMAKE_PREFIX_PATH="$prefix" `
+                -DBUILD_TESTS=OFF
+          cmake --build vk-loader/build --config Release --target install
+
+          # ENABLE_OPT=OFF is the point: it drops the SPIRV-Tools dependency
+          # that the packaged action tripped over. The optimiser is only used
+          # for -Os style passes we do not ask for.
+          git clone --depth 1 --branch $tag https://github.com/KhronosGroup/glslang.git glslang
+          cmake -S glslang -B glslang/build -A x64 `
+                -DCMAKE_INSTALL_PREFIX="$prefix" `
+                -DENABLE_OPT=OFF `
+                -DGLSLANG_TESTS=OFF `
+                -DENABLE_GLSLANG_BINARIES=ON
+          cmake --build glslang/build --config Release --target install
+
+      - name: Expose Vulkan to the build
+        shell: pwsh
+        run: |
+          $prefix = "${{ github.workspace }}/vulkan"
+          "VULKAN_SDK=$prefix"              | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          "$prefix/bin"                     | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+          Get-ChildItem "$prefix/bin" | Select-Object -First 10 | ForEach-Object { Write-Host $_.Name }
 
       - name: Cache dependencies
         uses: actions/cache@v6
