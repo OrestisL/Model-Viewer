@@ -229,6 +229,7 @@ bool App::loadModel(const fs::path& path)
 
     // Node indices from the previous model mean nothing now.
     m_history.clear();
+    m_ui.clearVisibilityState();
 
     // Textured models keep their own colours; untextured ones follow the
     // colour wheel so there is always something sensible on screen.
@@ -279,6 +280,7 @@ void App::closeModel()
     m_scene.clear();
     m_animator.setScene(&m_scene);
     m_history.clear();
+    m_ui.clearVisibilityState();
 
     updateWindowTitle();
     setStatus("Model closed.");

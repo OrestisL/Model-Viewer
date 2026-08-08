@@ -86,6 +86,33 @@ void Scene::showAll()
     for (Node& node : nodes) node.visible = true;
 }
 
+void Scene::isolate(int node)
+{
+    if (node < 0 || static_cast<size_t>(node) >= nodes.size()) return;
+
+    for (Node& n : nodes) n.visible = false;
+
+    // The node itself and everything under it.
+    std::vector<int> stack{node};
+    while (!stack.empty())
+    {
+        const int index = stack.back();
+        stack.pop_back();
+
+        nodes[static_cast<size_t>(index)].visible = true;
+        for (int child : nodes[static_cast<size_t>(index)].children)
+            stack.push_back(child);
+    }
+
+    // Then walk back up, or the whole subtree stays hidden behind a hidden
+    // parent.
+    for (int p = nodes[static_cast<size_t>(node)].parent; p != kInvalidIndex;
+         p = nodes[static_cast<size_t>(p)].parent)
+    {
+        nodes[static_cast<size_t>(p)].visible = true;
+    }
+}
+
 void Scene::updateBounds()
 {
     bounds = AABB{};

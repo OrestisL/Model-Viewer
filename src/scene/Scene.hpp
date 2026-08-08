@@ -232,6 +232,14 @@ struct Scene
     /// Makes every node visible again.
     void showAll();
 
+    /// Hides everything except `node`, its descendants and its ancestors.
+    ///
+    /// Ancestors have to stay visible because visibility inherits downwards:
+    /// hiding a parent hides the node regardless of its own flag. Descendants
+    /// are included so isolating a group shows the whole group rather than an
+    /// empty transform.
+    void isolate(int node);
+
     /// Nearest node hit by a world-space ray, or kInvalidIndex for a miss.
     /// Triangle-accurate: the CPU keeps the geometry after upload, so there is
     /// no need to settle for bounding-box precision or a GPU readback.

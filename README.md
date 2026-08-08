@@ -16,6 +16,7 @@ Builds with CMake on Linux and Windows.
 | Ambient light | Colour and strength configurable, or derived from the sky per-normal |
 | Unlit mode | Bypasses all lighting for models with baked-in lighting |
 | Per-node visibility | Hide meshes with `H`, restore all with `Shift`+`H`, or toggle in the tree |
+| Isolate selection | `I` shows only the selection and its children; leaving restores what was showing before |
 | Shadows | PCF-filtered shadow map, cast by the brightest light in the scene |
 | meshopt-compressed glTF/GLB | **Not supported** — run `gltfpack -noq` to decompress first |
 | Skeletal + node animation playback | Timeline, scrub, loop, speed, clip selection |
@@ -139,6 +140,7 @@ Or just drag a file onto the window.
 | `T` | Show / hide the side panel |
 | `H` | Hide the selected mesh |
 | `Shift` + `H` | Show all meshes |
+| `I` | Isolate the selection / leave isolate |
 | `F` | Frame the model |
 | `Space` | Play / pause animation |
 | `W` | Toggle wireframe |

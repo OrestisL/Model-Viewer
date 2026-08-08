@@ -148,6 +148,47 @@ void UiLayer::applyTheme()
     ui::applyStyle(m_theme, m_accent, m_uiScale);
 }
 
+void UiLayer::clearVisibilityState()
+{
+    m_isolated = false;
+    m_visibilityBeforeIsolate.clear();
+}
+
+void UiLayer::toggleIsolate(App& app)
+{
+    Scene& scene = app.scene();
+
+    if (m_isolated)
+    {
+        // Restore rather than show-all: anything hidden before isolating was
+        // hidden deliberately and should stay that way.
+        for (size_t i = 0; i < scene.nodes.size() && i < m_visibilityBeforeIsolate.size(); ++i)
+            scene.nodes[i].visible = m_visibilityBeforeIsolate[i] != 0;
+
+        m_isolated = false;
+        m_visibilityBeforeIsolate.clear();
+        log::info("Isolate off");
+        return;
+    }
+
+    if (m_selectedNode < 0 || static_cast<size_t>(m_selectedNode) >= scene.nodes.size())
+    {
+        log::warn("Select something to isolate");
+        return;
+    }
+
+    m_visibilityBeforeIsolate.resize(scene.nodes.size());
+    for (size_t i = 0; i < scene.nodes.size(); ++i)
+        m_visibilityBeforeIsolate[i] = scene.nodes[i].visible ? 1u : 0u;
+
+    scene.isolate(m_selectedNode);
+    m_isolated = true;
+
+    const Node& node = scene.nodes[static_cast<size_t>(m_selectedNode)];
+    log::info("Isolated ", node.name.empty() ? "<unnamed>" : node.name,
+              " (I to leave)");
+}
+
 void UiLayer::handleVisibilityShortcuts(App& app)
 {
     if (!app.hasModel()) return;
@@ -155,12 +196,24 @@ void UiLayer::handleVisibilityShortcuts(App& app)
     const ImGuiIO& io = ImGui::GetIO();
     if (io.WantTextInput || io.KeyCtrl) return;
 
+    // A plain toggle. Trying to be clever about re-isolating onto a different
+    // selection makes the key unpredictable: sometimes it leaves, sometimes it
+    // does not. Leave, select, isolate again is two keystrokes and always does
+    // what it looks like.
+    if (ImGui::IsKeyPressed(ImGuiKey_I, false))
+    {
+        toggleIsolate(app);
+        return;
+    }
+
     // Shift+H reveals everything rather than un-hiding the selection: once a
     // node is hidden it cannot be picked, so a selection-based un-hide would
     // strand anything hidden while nothing was selected.
     if (io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_H, false))
     {
         app.scene().showAll();
+        m_isolated = false;
+        m_visibilityBeforeIsolate.clear();
         log::info("All meshes shown");
         return;
     }
@@ -814,6 +867,7 @@ void UiLayer::drawViewerPanel(App& app)
             {"T",                  "Show / hide side panel"},
             {"H",                  "Hide selected mesh"},
             {"Shift + H",          "Show all meshes"},
+            {"I",                  "Isolate selection / leave isolate"},
             {"Left click model",   "Select / show gumball"},
             {"Drag arrow / arc",   "Move / rotate / scale"},
             {"Ctrl+Z",             "Undo transform"},
@@ -1186,6 +1240,26 @@ void UiLayer::drawModelPanel(App& app)
 
     if (ImGui::CollapsingHeader("Hierarchy"))
     {
+        ImGui::BeginDisabled(m_selectedNode < 0 && !m_isolated);
+        if (ImGui::Button(m_isolated ? "Leave isolate" : "Isolate selection"))
+            toggleIsolate(app);
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("Show all"))
+        {
+            // Through app rather than the local: this panel's reference is
+            // const because everything else here only reads, and that is worth
+            // keeping.
+            app.scene().showAll();
+            clearVisibilityState();
+        }
+
+        // Isolate hides most of the tree, which looks a lot like a broken
+        // model unless the state is stated plainly.
+        if (m_isolated)
+            ImGui::TextColored(ImVec4(0.95f, 0.72f, 0.28f, 1.0f),
+                               "Isolated - press I or the button to restore");
+
         if (ImGui::BeginChild("##tree", ImVec2(0, 200), ImGuiChildFlags_Borders))
             for (int root : scene.roots)
                 drawNodeTree(app, root);

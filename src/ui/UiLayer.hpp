@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include "scene/History.hpp"
 #include "ui/FileBrowser.hpp"
@@ -40,6 +41,14 @@ private:
     void handleUndoShortcuts(App& app);
     void handleViewportPicking(App& app);
     void handleVisibilityShortcuts(App& app);
+    void toggleIsolate(App& app);
+
+public:
+    /// Drops isolate state. Node indices from a previous model would restore
+    /// the wrong things, so this must be called whenever the scene changes.
+    void clearVisibilityState();
+
+private:
     void drawGizmoSettings(App& app);
     void drawViewerPanel(App& app);
     void drawModelPanel(App& app);
@@ -102,6 +111,12 @@ private:
     /// Side panel docking. The panels live in one dock node pinned to an edge;
     /// the central node is left empty and transparent so the 3D view shows
     /// through it and still receives mouse input.
+    /// Isolate mode. The visibility of every node is saved on entry so
+    /// leaving restores exactly what was showing, rather than revealing
+    /// everything and discarding whatever the user had hidden by hand.
+    bool                 m_isolated = false;
+    std::vector<uint8_t> m_visibilityBeforeIsolate;
+
     ui::ThemeStyle m_theme    = ui::ThemeStyle::Dark;
     ImVec4         m_accent   = ImVec4(0.29f, 0.56f, 0.95f, 1.0f);
     float          m_uiScale  = 1.0f;
