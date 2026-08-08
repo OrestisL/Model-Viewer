@@ -26,6 +26,15 @@ option(MV_ENABLE_DRACO      "Decode Draco-compressed glTF/GLB (adds ~2 min to th
 option(MV_ENABLE_USD        "Enable USD/USDA/USDC/USDZ import (Assimp + tinyusdz)" OFF)
 option(MV_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 
+# The MSVC runtime library must be identical across every target linked into
+# the same binary. Setting it on our executable alone leaves GLFW, Assimp and
+# ImGui on the default dynamic CRT, and the link fails with LNK2038. It has to
+# be set here, before the dependencies are configured, so they inherit it.
+if(MV_STATIC_RUNTIME AND MSVC)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+        CACHE STRING "" FORCE)
+endif()
+
 # ---------------------------------------------------------------------------
 # Dependencies
 # ---------------------------------------------------------------------------
@@ -149,13 +158,8 @@ if(NOT MSVC)
     target_link_options(ModelViewer PRIVATE -rdynamic)
 endif()
 
-if(MV_STATIC_RUNTIME)
-    if(MSVC)
-        set_property(TARGET ModelViewer PROPERTY
-            MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-    else()
-        target_link_options(ModelViewer PRIVATE -static-libstdc++ -static-libgcc)
-    endif()
+if(MV_STATIC_RUNTIME AND NOT MSVC)
+    target_link_options(ModelViewer PRIVATE -static-libstdc++ -static-libgcc)
 endif()
 
 # ---------------------------------------------------------------------------

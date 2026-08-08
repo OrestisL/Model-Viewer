@@ -17,7 +17,7 @@ jobs:
     name: Linux (GCC, Release)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # GLFW needs the X11 and Wayland development headers; the Vulkan loader
       # and glslang come from the distribution rather than the LunarG SDK,
@@ -34,7 +34,7 @@ jobs:
       # Dependencies are fetched at configure time, so caching _deps turns a
       # ~20 minute build into a couple of minutes on unchanged pins.
       - name: Cache dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: build/linux-dist/_deps
           key: deps-linux-${{ hashFiles('cmake/Dependencies.cmake') }}
@@ -46,9 +46,10 @@ jobs:
         run: cmake --build --preset linux-dist
 
       - name: Package
-        run: cmake --build --preset linux-dist --target package
+        working-directory: build/linux-dist
+        run: cpack
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ModelViewer-linux-x86_64
           path: build/linux-dist/ModelViewer-*.tar.gz
@@ -58,7 +59,7 @@ jobs:
     name: Windows (MSVC, Release)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # The SDK supplies the Vulkan headers, the import library and glslc.
       # There is no distribution package equivalent on Windows.
@@ -70,7 +71,7 @@ jobs:
           vulkan-use-cache: true
 
       - name: Cache dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: build/windows-dist/_deps
           key: deps-windows-${{ hashFiles('cmake/Dependencies.cmake') }}
@@ -78,13 +79,21 @@ jobs:
       - name: Configure
         run: cmake --preset windows-dist
 
+      - name: Show CMake error log on failure
+        if: failure()
+        run: |
+          Get-ChildItem -Path build -Recurse -Include CMakeConfigureLog.yaml,CMakeError.log -ErrorAction SilentlyContinue |
+            ForEach-Object { Write-Host "=== $_ ==="; Get-Content $_ -Tail 80 }
+        shell: pwsh
+
       - name: Build
         run: cmake --build --preset windows-dist
 
       - name: Package
-        run: cmake --build --preset windows-dist --target package --config Release
+        working-directory: build/windows-dist
+        run: cpack -C Release
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ModelViewer-windows-x86_64
           path: build/windows-dist/ModelViewer-*.zip
@@ -98,11 +107,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: artifacts/**/*
           generate_release_notes: true
