@@ -43,8 +43,17 @@ jobs:
           path: build/linux-dist/_deps
           key: deps-linux-${{ hashFiles('cmake/Dependencies.cmake') }}
 
+      # On a tag build, stamp the tag into the package name; otherwise the
+      # archive keeps the fallback version from CMakeLists and a v1.0.0
+      # release ships files labelled 0.1.0.
+      - name: Resolve version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "MV_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          fi
+
       - name: Configure
-        run: cmake --preset linux-dist
+        run: cmake --preset linux-dist ${MV_VERSION:+-DMV_VERSION=$MV_VERSION}
 
       - name: Build
         run: cmake --build --preset linux-dist
@@ -130,8 +139,19 @@ jobs:
           Get-ChildItem "C:/Program Files/Microsoft Visual Studio" -ErrorAction SilentlyContinue |
             ForEach-Object { Write-Host "Visual Studio: $($_.Name)" }
 
+      - name: Resolve version
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -like 'refs/tags/v*') {
+            "MV_VERSION=$($env:GITHUB_REF_NAME.TrimStart('v'))" |
+              Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          }
+
       - name: Configure
-        run: cmake --preset windows-dist
+        shell: pwsh
+        run: |
+          if ($env:MV_VERSION) { cmake --preset windows-dist "-DMV_VERSION=$env:MV_VERSION" }
+          else                 { cmake --preset windows-dist }
 
       - name: Show CMake error log on failure
         if: failure()
@@ -183,8 +203,8 @@ jobs:
 
             | Platform | File |
             |---|---|
-            | Linux x86_64 | `ModelViewer-*-Linux-x86_64.tar.gz` |
-            | Windows x64  | `ModelViewer-*-Windows-AMD64.zip` |
+            | Linux x86_64 | `ModelViewer-*-linux-x86_64.tar.gz` |
+            | Windows x64  | `ModelViewer-*-windows-x86_64.zip` |
 
             Verify with `sha256sum -c SHA256SUMS.txt`.
 

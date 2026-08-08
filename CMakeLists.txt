@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 
 project(ModelViewer
-    VERSION 0.1.0
+    VERSION 1.0.0
     DESCRIPTION "Cross-platform Vulkan 3D model viewer"
     LANGUAGES C CXX)
 
@@ -236,11 +236,31 @@ endif()
 # ---------------------------------------------------------------------------
 set(CPACK_PACKAGE_NAME              "ModelViewer")
 set(CPACK_PACKAGE_VENDOR            "ModelViewer")
-set(CPACK_PACKAGE_VERSION           "${PROJECT_VERSION}")
+# CI passes the git tag so the archive name matches the release. Without it
+# the file keeps whatever version is hardcoded above, which is how a v1.0.0
+# release ends up full of ModelViewer-0.1.0-* files.
+set(MV_VERSION "${PROJECT_VERSION}" CACHE STRING "Version stamped into packages")
+set(CPACK_PACKAGE_VERSION           "${MV_VERSION}")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Vulkan 3D model viewer and converter")
 set(CPACK_PACKAGE_INSTALL_DIRECTORY "ModelViewer")
-set(CPACK_PACKAGE_FILE_NAME
-    "ModelViewer-${PROJECT_VERSION}-${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}")
+# CMAKE_SYSTEM_PROCESSOR reports x86_64 on Linux and AMD64 on Windows for the
+# same hardware, so it is normalised rather than passed through -- the same
+# machine should not produce two differently-named architectures.
+if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+    set(MV_ARCH "x86_64")
+else()
+    set(MV_ARCH "x86")
+endif()
+
+if(WIN32)
+    set(MV_PLATFORM "windows")
+elseif(APPLE)
+    set(MV_PLATFORM "macos")
+else()
+    set(MV_PLATFORM "linux")
+endif()
+
+set(CPACK_PACKAGE_FILE_NAME "ModelViewer-${MV_VERSION}-${MV_PLATFORM}-${MV_ARCH}")
 set(CPACK_VERBATIM_VARIABLES ON)
 set(CPACK_STRIP_FILES ON)
 
