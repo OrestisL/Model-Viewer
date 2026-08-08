@@ -54,9 +54,7 @@
     {
       "name": "windows-msvc",
       "inherits": "base",
-      "displayName": "Windows Visual Studio 2022 x64",
-      "generator": "Visual Studio 17 2022",
-      "architecture": "x64",
+      "displayName": "Windows (default Visual Studio, x64)",
       "condition": {
         "type": "equals",
         "lhs": "${hostSystemName}",
@@ -98,8 +96,6 @@
       "name": "windows-dist",
       "inherits": "base",
       "displayName": "Windows Release (redistributable)",
-      "generator": "Visual Studio 17 2022",
-      "architecture": "x64",
       "cacheVariables": {
         "MV_ENABLE_VALIDATION": "OFF",
         "MV_STATIC_RUNTIME": "ON"

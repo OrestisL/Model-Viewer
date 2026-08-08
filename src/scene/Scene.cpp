@@ -55,6 +55,37 @@ std::vector<glm::mat4> Scene::computeGlobalTransforms() const
     return globals;
 }
 
+std::vector<uint8_t> Scene::computeVisibility() const
+{
+    std::vector<uint8_t> visible(nodes.size(), 1);
+    std::vector<int>     stack(roots.begin(), roots.end());
+
+    while (!stack.empty())
+    {
+        const int index = stack.back();
+        stack.pop_back();
+
+        const Node& node = nodes[static_cast<size_t>(index)];
+
+        const bool parentVisible =
+            (node.parent == kInvalidIndex) ||
+            visible[static_cast<size_t>(node.parent)] != 0;
+
+        visible[static_cast<size_t>(index)] =
+            (parentVisible && node.visible) ? 1u : 0u;
+
+        for (int child : node.children)
+            stack.push_back(child);
+    }
+
+    return visible;
+}
+
+void Scene::showAll()
+{
+    for (Node& node : nodes) node.visible = true;
+}
+
 void Scene::updateBounds()
 {
     bounds = AABB{};
@@ -134,11 +165,16 @@ int Scene::pickNode(const glm::vec3& origin, const glm::vec3& direction,
 
     const std::vector<glm::mat4> globals = computeGlobalTransforms();
 
+    // You should not be able to click something you cannot see.
+    const std::vector<uint8_t> visible = computeVisibility();
+
     int   bestNode = kInvalidIndex;
     float bestT    = std::numeric_limits<float>::max();
 
     for (size_t n = 0; n < nodes.size(); ++n)
     {
+        if (n < visible.size() && !visible[n]) continue;
+
         for (uint32_t meshIndex : nodes[n].meshes)
         {
             if (meshIndex >= meshes.size()) continue;

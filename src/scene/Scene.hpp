@@ -106,6 +106,10 @@ struct Node
     glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};
     glm::vec3 scale{1.0f};
 
+    /// Hiding a node hides everything beneath it, which is what people expect
+    /// from a hierarchy: hiding a character should not leave its hands behind.
+    bool visible = true;
+
     glm::mat4 localMatrix() const;
 };
 
@@ -219,6 +223,14 @@ struct Scene
 
     /// Recompute `bounds` from the current node hierarchy.
     void updateBounds();
+
+    /// Effective visibility per node: false when the node itself is hidden or
+    /// any ancestor is. Mirrors computeGlobalTransforms, since visibility
+    /// inherits down the hierarchy exactly as transforms do.
+    std::vector<uint8_t> computeVisibility() const;
+
+    /// Makes every node visible again.
+    void showAll();
 
     /// Nearest node hit by a world-space ray, or kInvalidIndex for a miss.
     /// Triangle-accurate: the CPU keeps the geometry after upload, so there is

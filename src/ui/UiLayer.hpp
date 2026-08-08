@@ -38,6 +38,7 @@ private:
     void sampleTiming(App& app);
     void handleUndoShortcuts(App& app);
     void handleViewportPicking(App& app);
+    void handleVisibilityShortcuts(App& app);
     void drawGizmoSettings(App& app);
     void drawViewerPanel(App& app);
     void drawModelPanel(App& app);

@@ -15,6 +15,7 @@ Builds with CMake on Linux and Windows.
 | Configurable sky | Gradient sky with presets, optional sun disc |
 | Ambient light | Colour and strength configurable, or derived from the sky per-normal |
 | Unlit mode | Bypasses all lighting for models with baked-in lighting |
+| Per-node visibility | Hide meshes with `H`, restore all with `Shift`+`H`, or toggle in the tree |
 | Shadows | PCF-filtered shadow map, cast by the brightest light in the scene |
 | meshopt-compressed glTF/GLB | **Not supported** — run `gltfpack -noq` to decompress first |
 | Skeletal + node animation playback | Timeline, scrub, loop, speed, clip selection |
@@ -68,10 +69,14 @@ cmake --build build -j
 ./build/bin/ModelViewer path/to/model.glb
 ```
 
-### Windows (Visual Studio 2022)
+### Windows (Visual Studio)
+
+The generator is deliberately not pinned: CMake picks whichever Visual Studio
+is installed, and VS 2019 and later already default to the host architecture.
+Naming a version only guarantees the build breaks when the toolchain moves on.
 
 ```powershell
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+cmake -S . -B build
 cmake --build build --config RelWithDebInfo
 .\build\bin\RelWithDebInfo\ModelViewer.exe
 ```
@@ -119,6 +124,8 @@ Or just drag a file onto the window.
 | Middle drag / Shift + left drag | Pan |
 | Right drag / scroll | Dolly |
 | `T` | Show / hide the side panel |
+| `H` | Hide the selected mesh |
+| `Shift` + `H` | Show all meshes |
 | `F` | Frame the model |
 | `Space` | Play / pause animation |
 | `W` | Toggle wireframe |

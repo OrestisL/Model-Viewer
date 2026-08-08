@@ -161,6 +161,45 @@ void UiLayer::applyTheme()
     colors[ImGuiCol_SliderGrab]     = ImVec4(0.38f, 0.60f, 0.92f, 1.00f);
 }
 
+void UiLayer::handleVisibilityShortcuts(App& app)
+{
+    if (!app.hasModel()) return;
+
+    const ImGuiIO& io = ImGui::GetIO();
+    if (io.WantTextInput || io.KeyCtrl) return;
+
+    // Shift+H reveals everything rather than un-hiding the selection: once a
+    // node is hidden it cannot be picked, so a selection-based un-hide would
+    // strand anything hidden while nothing was selected.
+    if (io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_H, false))
+    {
+        app.scene().showAll();
+        log::info("All meshes shown");
+        return;
+    }
+
+    if (!io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_H, false))
+    {
+        Scene& scene = app.scene();
+        if (m_selectedNode < 0 ||
+            static_cast<size_t>(m_selectedNode) >= scene.nodes.size())
+        {
+            log::warn("Nothing selected to hide");
+            return;
+        }
+
+        Node& node   = scene.nodes[static_cast<size_t>(m_selectedNode)];
+        node.visible = false;
+
+        log::info("Hid ", node.name.empty() ? "<unnamed>" : node.name,
+                  " (Shift+H shows everything again)");
+
+        // Keep the selection: the manipulator would otherwise sit on something
+        // invisible, and the node tree still shows what is selected.
+        m_selectedNode = kInvalidIndex;
+    }
+}
+
 void UiLayer::handleViewportPicking(App& app)
 {
     if (!app.hasModel()) return;
@@ -545,6 +584,7 @@ void UiLayer::build(App& app)
     if (m_showStats)                            drawStatusOverlay(app);
 
     handleUndoShortcuts(app);
+    handleVisibilityShortcuts(app);
 
     // Picking first: a click that lands on the manipulator must not also
     // change the selection out from under it.
@@ -734,6 +774,8 @@ void UiLayer::drawViewerPanel(App& app)
             {"W",                  "Wireframe"},
             {"G",                  "Toggle grid"},
             {"T",                  "Show / hide side panel"},
+            {"H",                  "Hide selected mesh"},
+            {"Shift + H",          "Show all meshes"},
             {"Left click model",   "Select / show gumball"},
             {"Drag arrow / arc",   "Move / rotate / scale"},
             {"Ctrl+Z",             "Undo transform"},
@@ -1005,10 +1047,25 @@ void UiLayer::drawViewerPanel(App& app)
 
 void UiLayer::drawNodeTree(App& app, int nodeIndex)
 {
-    const Scene& scene = app.scene();
+    Scene& scene = app.scene();
     if (nodeIndex < 0 || nodeIndex >= static_cast<int>(scene.nodes.size())) return;
 
-    const Node& node = scene.nodes[static_cast<size_t>(nodeIndex)];
+    Node& node = scene.nodes[static_cast<size_t>(nodeIndex)];
+
+    // Per-row visibility toggle, so a hidden node can be brought back without
+    // resorting to Shift+H.
+    ImGui::PushID(nodeIndex);
+    if (ImGui::SmallButton(node.visible ? "o" : "-")) node.visible = !node.visible;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(node.visible ? "Visible - click to hide"
+                                       : "Hidden - click to show");
+    ImGui::PopID();
+    ImGui::SameLine();
+
+    // Captured once: the toggle above can flip node.visible mid-row, and the
+    // push and pop must agree or the style stack unbalances.
+    const bool dimmed = !node.visible;
+    if (dimmed) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.55f, 0.58f, 1.0f));
 
     ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
     if (node.children.empty()) flags |= ImGuiTreeNodeFlags_Leaf;
@@ -1016,8 +1073,11 @@ void UiLayer::drawNodeTree(App& app, int nodeIndex)
 
     const std::string label = node.name.empty() ? ("node " + std::to_string(nodeIndex)) : node.name;
     const bool opened = ImGui::TreeNodeEx(reinterpret_cast<void*>(static_cast<intptr_t>(nodeIndex)),
-                                          flags, "%s%s", label.c_str(),
-                                          node.meshes.empty() ? "" : "  [mesh]");
+                                          flags, "%s%s%s", label.c_str(),
+                                          node.meshes.empty() ? "" : "  [mesh]",
+                                          node.visible ? "" : "  (hidden)");
+
+    if (dimmed) ImGui::PopStyleColor();
 
     if (ImGui::IsItemClicked()) m_selectedNode = nodeIndex;
 

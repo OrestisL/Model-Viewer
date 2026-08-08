@@ -1114,9 +1114,15 @@ void Renderer::buildDrawList(const Scene*    scene,
 
     const glm::vec3 eye = camera.position();
 
+    // Hidden nodes are dropped here rather than at draw time, so they also
+    // stop casting shadows -- the shadow pass reuses this list.
+    const std::vector<uint8_t> visible = scene->computeVisibility();
+
     for (size_t nodeIndex = 0; nodeIndex < scene->nodes.size(); ++nodeIndex)
     {
         const Node& node = scene->nodes[nodeIndex];
+
+        if (nodeIndex < visible.size() && !visible[nodeIndex]) continue;
 
         for (uint32_t meshIndex : node.meshes)
         {

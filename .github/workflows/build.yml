@@ -123,6 +123,13 @@ jobs:
           path: build/windows-dist/_deps
           key: deps-windows-${{ hashFiles('cmake/Dependencies.cmake') }}
 
+      - name: Show toolchain
+        shell: pwsh
+        run: |
+          cmake --version
+          Get-ChildItem "C:/Program Files/Microsoft Visual Studio" -ErrorAction SilentlyContinue |
+            ForEach-Object { Write-Host "Visual Studio: $($_.Name)" }
+
       - name: Configure
         run: cmake --preset windows-dist
 
