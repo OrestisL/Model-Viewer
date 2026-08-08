@@ -145,20 +145,27 @@ endif()
 # tinyusdz compiles lz4.c into the same target and <cstdint> is not valid C.
 # The flag is restored afterwards, so it applies to the dependencies rather
 # than to our own code.
-# Applied to every dependency, not just tinyusdz: Draco 1.4 predates the same
-# libstdc++ change and relies on the same transitive <cstdint>. Force-including
-# it is harmless where it is already present and pre-empts an error whose
-# symptom (a thousand template failures) looks nothing like its cause.
-set(MV_SAVED_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-if(MSVC)
-    string(APPEND CMAKE_CXX_FLAGS " /FIcstdint")
-else()
+# GCC 13 and 14 stopped pulling <cstdint> in transitively through <vector> and
+# friends. tinyusdz and Draco both predate that and rely on it, so the header is
+# force-included for the dependency builds.
+#
+# Not on MSVC, for two reasons. Its STL never dropped those transitive includes,
+# so the flag buys nothing there. And it actively breaks: the Visual Studio
+# generator writes flags into project-level <ClCompile> settings in the .vcxproj
+# rather than per source file, so a C++ forced-include reaches the C sources in
+# a mixed-language target too -- every .c file in assimp then fails with
+# "STL1003: Unexpected compiler, expected C++ compiler". Makefile and Ninja
+# builds emit per-file flags and never show this.
+if(NOT MSVC)
+    set(MV_SAVED_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
     string(APPEND CMAKE_CXX_FLAGS " -include cstdint")
 endif()
 
 FetchContent_MakeAvailable(glfw glm assimp vk_bootstrap vma imgui stb imguizmo)
 
-set(CMAKE_CXX_FLAGS "${MV_SAVED_CXX_FLAGS}")
+if(NOT MSVC)
+    set(CMAKE_CXX_FLAGS "${MV_SAVED_CXX_FLAGS}")
+endif()
 
 # --- Header-only targets ---------------------------------------------------
 add_library(stb INTERFACE)
