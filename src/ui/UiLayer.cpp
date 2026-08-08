@@ -535,9 +535,15 @@ void UiLayer::buildDefaultLayout()
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
 
     ImGui::DockBuilderRemoveNode(m_dockspaceId);
-    ImGui::DockBuilderAddNode(m_dockspaceId,
-                              ImGuiDockNodeFlags_DockSpace |
-                                  ImGuiDockNodeFlags_PassthruCentralNode);
+    // DockSpace comes from imgui_internal.h's private enum and
+    // PassthruCentralNode from the public one. Combining them directly is a
+    // deprecated cross-enum operation in C++20, so widen both to the flags
+    // type first -- which is what the parameter takes anyway.
+    const ImGuiDockNodeFlags nodeFlags =
+        static_cast<ImGuiDockNodeFlags>(ImGuiDockNodeFlags_DockSpace) |
+        static_cast<ImGuiDockNodeFlags>(ImGuiDockNodeFlags_PassthruCentralNode);
+
+    ImGui::DockBuilderAddNode(m_dockspaceId, nodeFlags);
     ImGui::DockBuilderSetNodeSize(m_dockspaceId, viewport->WorkSize);
 
     ImGuiID side   = 0;

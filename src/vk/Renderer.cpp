@@ -1508,7 +1508,10 @@ void Renderer::recordScene(VkCommandBuffer cmd, const RenderSettings& settings)
     record(m_blendedDraws, true);
 }
 
-void Renderer::recordShadowPass(VkCommandBuffer cmd, const RenderSettings& settings)
+// settings is unused today: everything the pass needs was resolved in
+// updateGlobals. Kept in the signature because bias and resolution belong here
+// if they ever become per-pass rather than baked into the pipeline.
+void Renderer::recordShadowPass(VkCommandBuffer cmd, const RenderSettings& /*settings*/)
 {
     if (m_shadowExtent == 0) return;
 

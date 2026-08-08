@@ -150,6 +150,15 @@ if(WIN32)
     # console so log output is visible.
     set_target_properties(ModelViewer PROPERTIES
         WIN32_EXECUTABLE $<NOT:$<CONFIG:Debug>>)
+
+    # /SUBSYSTEM:WINDOWS makes the linker look for WinMain, but this program
+    # has an ordinary main(). Pointing it at the console CRT entry point keeps
+    # the standard signature while still producing a windowed binary. MinGW
+    # needs none of this: it supplies its own WinMain that forwards to main().
+    if(MSVC)
+        target_link_options(ModelViewer PRIVATE
+            $<$<NOT:$<CONFIG:Debug>>:/ENTRY:mainCRTStartup>)
+    endif()
 endif()
 
 if(NOT MSVC)
