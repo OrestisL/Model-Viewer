@@ -1552,6 +1552,18 @@ void Renderer::recordShadowPass(VkCommandBuffer cmd, const RenderSettings& /*set
     {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_shadowPipeline);
 
+        // Set 0 must be bound here, not merely later in the main pass.
+        //
+        // shadow.vert reads G.lightViewProj from binding 0 and the joint
+        // matrices from binding 1. Descriptor bindings do not persist across
+        // command buffers, and this pass is recorded before the main one binds
+        // anything, so without this the shader samples an unbound set. That is
+        // undefined behaviour: NVIDIA happens to return something harmless,
+        // Mesa's Intel driver dereferences a null descriptor and takes the
+        // process down.
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipelineLayout,
+                                0, 1, &m_frames[m_frameIndex].globalSet, 0, nullptr);
+
         const VkDeviceSize offset = 0;
         vkCmdBindVertexBuffers(cmd, 0, 1, &m_gpuScene.vertexBuffer.handle, &offset);
         vkCmdBindIndexBuffer(cmd, m_gpuScene.indexBuffer.handle, 0, VK_INDEX_TYPE_UINT32);
