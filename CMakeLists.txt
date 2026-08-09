@@ -140,7 +140,12 @@ add_custom_command(TARGET ModelViewer POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/resources/icon.png"
             "$<TARGET_FILE_DIR:ModelViewer>/resources/"
-    COMMENT "Staging resources")
+    COMMENT "Staging resources"
+    # VERBATIM makes CMake escape the arguments for the shell it will actually
+    # use. Without it the paths are pasted in raw, and any that contain shell
+    # metacharacters -- a bracket, a space, an ampersand -- produce a syntax
+    # error at build time rather than anything that names the cause.
+    VERBATIM)
 
 if(WIN32)
     # Compiled into the .exe, so Explorer and the taskbar show it before the

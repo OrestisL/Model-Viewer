@@ -228,3 +228,27 @@ src/
     UiLayer.{hpp,cpp}     all ImGui panels
     FileBrowser.{hpp,cpp} portable open/save dialog
 ```
+
+### Design notes
+
+**Why Vulkan 1.3 specifically.** The renderer uses dynamic rendering and
+synchronization2, which removes render-pass and framebuffer objects entirely, and
+descriptor indexing for a bindless texture array. That last one is what lets the whole
+scene draw from a single descriptor set with the material index in a push constant,
+instead of rebinding per draw call.
+
+**Why ImGui rather than Qt.** Immediate-mode fits a viewer's "the UI is a view onto
+mutable render state" shape, it has a first-party Vulkan backend that renders into the
+same command buffer, and it adds no deployment or licensing burden. The trade-off is
+that it is not a native-looking application; if you need platform-native chrome, Qt is
+the better choice and the `ui/` layer is the only part you would rewrite.
+
+**Scene representation.** `Scene` is deliberately independent of both Assimp and Vulkan
+— flat arrays of nodes, meshes, materials, skins, lights, cameras and animation clips.
+`ModelLoader` and `UsdBackend` both produce one; `Renderer` consumes one. Adding a third
+importer means adding one file.
+
+**Skinning** runs in the vertex shader against a joint-matrix SSBO that the animator
+refills each frame. Meshes without skins take the same path with an identity palette,
+which keeps the pipeline count down.
+

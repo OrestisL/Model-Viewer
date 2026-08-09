@@ -1171,11 +1171,18 @@ void UiLayer::drawViewerPanel(App& app)
         int flip = static_cast<int>(options.flipV);
         if (ImGui::Combo("Flip V", &flip, "Auto\0Always\0Never\0"))
             options.flipV = static_cast<ImportOptions::FlipV>(flip);
-        helpMarker("glTF stores texture coordinates top-down, most other formats bottom-up. "
-                   "Auto picks per format; change this and reload if textures look upside down.");
+        helpMarker("Assimp reports texture coordinates with a bottom-left origin for "
+                   "every format, while our textures are uploaded top-down, so Auto "
+                   "flips V in all cases. Override and reload only if a particular "
+                   "file looks upside down.");
 
         ImGui::Checkbox("Generate missing normals", &options.generateNormals);
         ImGui::Checkbox("Optimise meshes", &options.optimizeMeshes);
+        ImGui::Checkbox("Repair invalid data", &options.repairInvalidData);
+        helpMarker("Fixes zeroed normals and degenerate UVs, but deletes UV "
+                   "channels it judges invalid and shifts the rest down, which "
+                   "can misalign textures. Try it only if a model looks wrong "
+                   "without it. Reload after changing.");
         ImGui::DragFloat("Import scale", &options.importScale, 0.001f, 0.0001f, 1000.0f, "%.4f");
 
         if (ImGui::Button("Reload with these options", ImVec2(-1, 0)) && app.hasModel())

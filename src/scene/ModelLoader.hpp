@@ -17,10 +17,22 @@ struct ExportFormat
 
 struct ImportOptions
 {
-    /// Flip the V texture coordinate. glTF/GLB already use a top-left origin,
-    /// most other formats do not, so this is chosen per format by default.
+    /// Flip the V texture coordinate.
+    ///
+    /// Assimp normalises every format to a bottom-left origin, and our images
+    /// are uploaded top-down, so Auto flips in all cases. The override exists
+    /// for files that are themselves inconsistent.
     enum class FlipV { Auto, Always, Never };
     FlipV flipV = FlipV::Auto;
+
+    /// aiProcess_FindInvalidData. Off by default.
+    ///
+    /// It repairs zeroed normals and degenerate UVs, which is useful, but it
+    /// does so by *deleting* offending UV channels and shifting the rest down.
+    /// That silently invalidates the per-texture UV indices the materials
+    /// carry, and a texture then samples a set it was never unwrapped for.
+    /// Worth enabling only for a file known to have broken normals.
+    bool  repairInvalidData = false;
 
     bool  optimizeMeshes  = false;  ///< aiProcess_OptimizeMeshes (breaks 1:1 node mapping less than you'd think)
     bool  generateNormals = true;

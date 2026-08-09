@@ -51,18 +51,29 @@ std::string lower(std::string s)
     return s;
 }
 
-/// glTF stores UVs with a top-left origin, which is what a Vulkan sampler
-/// expects from a top-down uploaded image. Most other formats do not.
+/// Whether to flip the V coordinate after import.
+///
+/// The question is not what the file format uses, but what Assimp hands over.
+/// Assimp's convention is a bottom-left origin, and its importers convert into
+/// it -- the glTF2 importer does `values[i].y = 1 - values[i].y` on every
+/// texture coordinate, precisely because glTF's origin is top-left.
+///
+/// Our images are uploaded top-down, so a Vulkan sampler reads v = 0 as the
+/// top row. That means the flip has to be undone for *every* format, glTF
+/// included. Reasoning about the file format instead of the importer output is
+/// what made this wrong: the earlier rule skipped the flip for glTF on the
+/// grounds that glTF is already top-down, without accounting for Assimp having
+/// already inverted it.
 bool shouldFlipV(const ImportOptions& options, const fs::path& path)
 {
+    (void)path;
     switch (options.flipV)
     {
         case ImportOptions::FlipV::Always: return true;
         case ImportOptions::FlipV::Never:  return false;
         case ImportOptions::FlipV::Auto:   break;
     }
-    const std::string ext = lower(path.extension().string());
-    return !(ext == ".gltf" || ext == ".glb");
+    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -94,17 +105,31 @@ public:
         if (material->GetTexture(type, 0, &relative) != AI_SUCCESS)
             return kInvalidIndex;
 
-        const std::string key = std::string(relative.C_Str());
-        if (key.empty()) return kInvalidIndex;
+        // The colour space is part of the identity, not just the path.
+        //
+        // One image is routinely referenced by two slots -- an ORM map used for
+        // both occlusion and metal-roughness, or an image serving as base
+        // colour in one material and as a mask in another. Base colour is
+        // decoded as sRGB and data maps as linear. Keying on the path alone
+        // hands whichever was requested first to both, so one of them is
+        // decoded in the wrong colour space. In a GLB every embedded texture
+        // is named "*0", "*1", ... so these collisions are the norm rather
+        // than the exception.
+        const std::string key = std::string(relative.C_Str()) + (srgb ? "|srgb" : "|linear");
+        if (relative.length == 0) return kInvalidIndex;
 
         if (auto it = m_cache.find(key); it != m_cache.end())
             return it->second;
 
+        // The path, not the cache key: the key carries a colour-space suffix
+        // that is meaningless to the filesystem.
+        const std::string path = relative.C_Str();
+
         int index = kInvalidIndex;
         if (const aiTexture* embedded = m_ai->GetEmbeddedTexture(relative.C_Str()))
-            index = loadEmbedded(*embedded, key, srgb);
+            index = loadEmbedded(*embedded, path, srgb);
         else
-            index = loadFromDisk(key, srgb);
+            index = loadFromDisk(path, srgb);
 
         m_cache.emplace(key, index);
         return index;
@@ -295,6 +320,13 @@ void convertMaterials(const aiScene* ai, Scene& scene, TextureCache& textures)
 
         dst.emissiveTexture = textures.acquire(src, aiTextureType_EMISSIVE, true);
 
+        // Which image landed in which slot, so a mix-up is visible in the log
+        // rather than only in the render.
+        log::info("Material '", dst.name, "': base=", dst.baseColorTexture,
+                  " normal=", dst.normalTexture,
+                  " metalRough=", dst.metalRoughTexture,
+                  " emissive=", dst.emissiveTexture);
+
         // A texture-less material with an untouched base colour is what the
         // colour wheel in the UI drives; flag it by leaving the factor white.
         scene.materials.push_back(std::move(dst));
@@ -324,7 +356,66 @@ void convertMeshes(const aiScene* ai, Scene& scene, bool flipV)
         mesh.firstIndex   = static_cast<uint32_t>(scene.indices.size());
         mesh.vertexCount  = src->mNumVertices;
 
-        const bool hasUV      = src->HasTextureCoords(0);
+        // Which UV set to read.
+        //
+        // A mesh may carry several, and glTF lets every texture name the one it
+        // wants (TEXCOORD_0, TEXCOORD_1, ...). Assimp exposes that per texture
+        // as UVWSRC. Always reading channel 0 is right for single-set models
+        // and silently wrong for the rest -- the texture lands on geometry
+        // unwrapped for something else, which looks like scrambled UVs rather
+        // than like a missing setting.
+        unsigned int uvChannel = 0;
+        if (src->mMaterialIndex < ai->mNumMaterials)
+        {
+            const aiMaterial* material = ai->mMaterials[src->mMaterialIndex];
+            unsigned int      wanted   = 0;
+
+            // Base colour first, then legacy diffuse: whichever names a set,
+            // that is the one the visible texture is authored against.
+            if (material->Get(AI_MATKEY_UVWSRC(aiTextureType_BASE_COLOR, 0), wanted) == AI_SUCCESS ||
+                material->Get(AI_MATKEY_UVWSRC(aiTextureType_DIFFUSE, 0), wanted) == AI_SUCCESS)
+            {
+                uvChannel = wanted;
+            }
+        }
+
+        // Fall back rather than read past the end if the material names a set
+        // the mesh does not actually have.
+        if (!src->HasTextureCoords(uvChannel))
+        {
+            if (uvChannel != 0)
+                log::warn("Mesh '", mesh.name, "' has no UV set ", uvChannel,
+                          "; using set 0");
+            uvChannel = 0;
+        }
+
+        unsigned int uvSetCount = 0;
+        while (uvSetCount < AI_MAX_NUMBER_OF_TEXTURECOORDS &&
+               src->HasTextureCoords(uvSetCount))
+            ++uvSetCount;
+
+        if (uvSetCount > 1)
+            log::info("Mesh '", mesh.name, "' has ", uvSetCount,
+                      " UV sets; using set ", uvChannel);
+
+        // UV bounds, so what Assimp hands us can be compared against what the
+        // file declares. If these disagree, the coordinates are being altered
+        // in import rather than being wrong on disk.
+        if (src->HasTextureCoords(uvChannel) && src->mNumVertices > 0)
+        {
+            float minU =  1e30f, minV =  1e30f;
+            float maxU = -1e30f, maxV = -1e30f;
+            for (unsigned int v = 0; v < src->mNumVertices; ++v)
+            {
+                const aiVector3D& uv = src->mTextureCoords[uvChannel][v];
+                minU = std::min(minU, uv.x); maxU = std::max(maxU, uv.x);
+                minV = std::min(minV, uv.y); maxV = std::max(maxV, uv.y);
+            }
+            log::info("Mesh '", mesh.name, "' UV range: u[", minU, ", ", maxU,
+                      "] v[", minV, ", ", maxV, "]  verts=", src->mNumVertices);
+        }
+
+        const bool hasUV      = src->HasTextureCoords(uvChannel);
         const bool hasNormals = src->HasNormals();
         const bool hasTangent = src->HasTangentsAndBitangents();
 
@@ -344,9 +435,9 @@ void convertMeshes(const aiScene* ai, Scene& scene, bool flipV)
 
             if (hasUV)
             {
-                vertex.uv = {src->mTextureCoords[0][v].x,
-                             flipV ? 1.0f - src->mTextureCoords[0][v].y
-                                   : src->mTextureCoords[0][v].y};
+                vertex.uv = {src->mTextureCoords[uvChannel][v].x,
+                             flipV ? 1.0f - src->mTextureCoords[uvChannel][v].y
+                                   : src->mTextureCoords[uvChannel][v].y};
             }
 
             mesh.bounds.expand(vertex.position);
@@ -626,13 +717,13 @@ unsigned int postProcessFlags(const ImportOptions& options)
         aiProcess_SortByPType |
         aiProcess_GenUVCoords |
         aiProcess_TransformUVCoords |
-        aiProcess_FindInvalidData |
         aiProcess_FindDegenerates |
         aiProcess_PopulateArmatureData |
         aiProcess_ValidateDataStructure;
 
-    if (options.generateNormals) flags |= aiProcess_GenSmoothNormals;
-    if (options.optimizeMeshes)  flags |= aiProcess_OptimizeMeshes;
+    if (options.generateNormals)   flags |= aiProcess_GenSmoothNormals;
+    if (options.optimizeMeshes)    flags |= aiProcess_OptimizeMeshes;
+    if (options.repairInvalidData) flags |= aiProcess_FindInvalidData;
 
     return flags;
 }
