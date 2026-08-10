@@ -10,14 +10,14 @@ Builds with CMake on Linux and Windows.
 | Requirement | Status |
 |---|---|
 | Read FBX, OBJ, STL, glTF, GLB (+ DAE, PLY, 3DS, X, LWO, OFF, …) | Assimp importer |
-| Read USD / USDA / USDC / USDZ | Assimp + tinyusdz, `-DMV_ENABLE_USD=ON` |
+| Read USD / USDA / USDC / USDZ | Assimp + tinyusdz, `compile with -DMV_ENABLE_USD=ON` |
 | Draco-compressed glTF/GLB | Yes, on by default (`MV_ENABLE_DRACO`) |
 | Configurable sky | Gradient sky with presets, optional sun disc |
 | Ambient light | Colour and strength configurable, or derived from the sky per-normal |
 | Unlit mode | Bypasses all lighting for models with baked-in lighting |
 | Per-node visibility | Hide meshes with `H`, restore all with `Shift`+`H`, or toggle in the tree |
 | Isolate selection | `I` shows only the selection and its children; leaving restores what was showing before |
-| Undo / redo | `Ctrl`+`Z` / `Ctrl`+`Shift`+`Z` for transforms and visibility changes |
+| Undo / redo | `Ctrl`+`Z` / `Ctrl`+`Shift`+`Z` or `Crtl` + `Y` for transforms and visibility changes |
 | Shadows | PCF-filtered shadow map, cast by the brightest light in the scene |
 | meshopt-compressed glTF/GLB | **Not supported** — run `gltfpack -noq` to decompress first |
 | Skeletal + node animation playback | Timeline, scrub, loop, speed, clip selection |
@@ -27,8 +27,8 @@ Builds with CMake on Linux and Windows.
 | Import cameras | Listed in the UI, click to adopt the camera's transform and FOV |
 | Export to other formats | Every Assimp export target: fbx, obj, stl, ply, gltf2, glb2, collada, x3d, 3ds, … |
 
-Plus: PBR metallic-roughness shading, 4x MSAA, a line-geometry ground grid, RGB origin
-axes, a transform gumball with undo/redo, click-to-select picking, orbit/pan/zoom camera,
+Plus: PBR metallic-roughness shading, 4x MSAA, RGB origin axes, 
+a transform gumball with undo/redo, click-to-select picking, orbit/pan/zoom camera,
 drag-and-drop loading, scene-graph and material inspectors, wireframe and normal-debug
 views, and an in-app log panel.
 
@@ -109,7 +109,7 @@ cmake --build build
 |---|---|---|
 | `MV_ENABLE_VALIDATION` | `ON` | Vulkan validation layers in Debug/RelWithDebInfo |
 | `MV_ENABLE_DRACO` | `ON` | Decode `KHR_draco_mesh_compression` (adds ~2 min to the build) |
-| `MV_ENABLE_USD` | `OFF` | Enable USD import via Assimp's tinyusdz reader (adds ~10 min to the build) |
+| `MV_ENABLE_USD` | `OFF` | Enable USD import via Assimp's tinyusdz reader |
 | `MV_WARNINGS_AS_ERRORS` | `OFF` | `-Werror` / `/WX` |
 
 If CMake cannot find the shader compiler, point it at one explicitly:
@@ -154,7 +154,7 @@ Or just drag a file onto the window.
 writes the **originally imported scene graph**, not a re-derived one, so round-trips
 (GLB → FBX, FBX → glTF) keep hierarchy, skins and animation data intact.
 
-Two caveats worth knowing:
+Notes:
 
 - Assimp's FBX writer emits FBX 7.4 binary/ASCII. It is solid for meshes, materials and
   hierarchy, but its animation and skin support is weaker than its reader's. Check the
@@ -230,18 +230,6 @@ src/
 ```
 
 ### Design notes
-
-**Why Vulkan 1.3 specifically.** The renderer uses dynamic rendering and
-synchronization2, which removes render-pass and framebuffer objects entirely, and
-descriptor indexing for a bindless texture array. That last one is what lets the whole
-scene draw from a single descriptor set with the material index in a push constant,
-instead of rebinding per draw call.
-
-**Why ImGui rather than Qt.** Immediate-mode fits a viewer's "the UI is a view onto
-mutable render state" shape, it has a first-party Vulkan backend that renders into the
-same command buffer, and it adds no deployment or licensing burden. The trade-off is
-that it is not a native-looking application; if you need platform-native chrome, Qt is
-the better choice and the `ui/` layer is the only part you would rewrite.
 
 **Scene representation.** `Scene` is deliberately independent of both Assimp and Vulkan
 — flat arrays of nodes, meshes, materials, skins, lights, cameras and animation clips.
