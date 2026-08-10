@@ -54,6 +54,10 @@ struct TextureData
     uint32_t             width  = 0;
     uint32_t             height = 0;
     bool                 srgb   = false;
+    /// True when the decoded image actually varies in alpha. Formats other
+    /// than glTF carry no alpha-mode flag, so this is the only signal that a
+    /// texture was authored to be cut out.
+    bool                 hasAlpha = false;
     std::vector<uint8_t> pixels;
 };
 

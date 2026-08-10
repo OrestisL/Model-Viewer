@@ -105,7 +105,11 @@ struct RenderSettings
     float     axesScale = 0.35f;
 
     bool      wireframe = false;
-    bool      backfaceCulling = true;
+    /// Off by default: single-sided rendering makes hair cards, foliage and
+    /// clothing vanish from one side, and a viewer that shows less than the
+    /// file contains is worse than one that draws a few extra triangles. The
+    /// cost is a second pipeline variant that already exists.
+    bool      backfaceCulling = false;
     DebugView debugView = DebugView::Shaded;
 
     float     exposure = 1.0f;

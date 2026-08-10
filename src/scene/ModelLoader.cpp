@@ -1,6 +1,8 @@
 #include "scene/ModelLoader.hpp"
 
 #include <algorithm>
+#include <utility>
+#include <string>
 #include <cctype>
 #include <cstring>
 #include <unordered_map>
@@ -96,6 +98,41 @@ public:
     TextureCache(Scene& scene, const aiScene* ai, fs::path baseDir)
         : m_scene(scene), m_ai(ai), m_baseDir(std::move(baseDir)) {}
 
+    /// Builds a copy of `colorIndex` with its alpha taken from `opacityIndex`.
+    ///
+    /// Returns a new texture rather than editing in place: the base colour may
+    /// be shared with a material that has no opacity map, and giving that one
+    /// a cut-out alpha would punch holes in it.
+    int combineAlpha(int colorIndex, int opacityIndex)
+    {
+        if (colorIndex == kInvalidIndex || opacityIndex == kInvalidIndex)
+            return colorIndex;
+
+        const TextureData& color   = m_scene.textures[static_cast<size_t>(colorIndex)];
+        const TextureData& opacity = m_scene.textures[static_cast<size_t>(opacityIndex)];
+
+        if (color.width != opacity.width || color.height != opacity.height)
+        {
+            log::warn("Opacity map ", opacity.name, " is ", opacity.width, "x", opacity.height,
+                      " but the base colour is ", color.width, "x", color.height,
+                      "; cannot combine them");
+            return colorIndex;
+        }
+
+        TextureData merged = color;
+        merged.name        = color.name + "+alpha";
+
+        // Greyscale maps put the same value in every channel; red is as good
+        // as any and is what an 8-bit single-channel map decodes into.
+        for (size_t i = 0; i + 3 < merged.pixels.size(); i += 4)
+            merged.pixels[i + 3] = opacity.pixels[i];
+
+        merged.hasAlpha = scanForAlpha(merged.pixels);
+
+        m_scene.textures.push_back(std::move(merged));
+        return static_cast<int>(m_scene.textures.size()) - 1;
+    }
+
     int acquire(const aiMaterial* material, aiTextureType type, bool srgb)
     {
         if (material->GetTextureCount(type) == 0)
@@ -160,6 +197,8 @@ private:
             data.pixels[i * 4 + 3] = tex.pcData[i].a;
         }
 
+        data.hasAlpha = scanForAlpha(data.pixels);
+
         m_scene.textures.push_back(std::move(data));
         return static_cast<int>(m_scene.textures.size()) - 1;
     }
@@ -187,10 +226,23 @@ private:
         data.height = static_cast<uint32_t>(h);
         data.srgb   = srgb;
         data.pixels.assign(pixels, pixels + static_cast<size_t>(w) * h * 4);
+        data.hasAlpha = scanForAlpha(data.pixels);
         stbi_image_free(pixels);
 
         m_scene.textures.push_back(std::move(data));
         return static_cast<int>(m_scene.textures.size()) - 1;
+    }
+
+    /// True when any pixel is meaningfully transparent.
+    ///
+    /// A tolerance rather than != 255: 8-bit authoring and JPEG-ish round
+    /// trips leave stray 253s in images that are conceptually opaque, and
+    /// treating those as cut-outs would push everything into the blended pass.
+    static bool scanForAlpha(const std::vector<uint8_t>& rgba)
+    {
+        for (size_t i = 3; i < rgba.size(); i += 4)
+            if (rgba[i] < 250) return true;
+        return false;
     }
 
     int decode(const uint8_t* bytes, size_t size, const std::string& name, bool srgb)
@@ -209,6 +261,7 @@ private:
         data.height = static_cast<uint32_t>(h);
         data.srgb   = srgb;
         data.pixels.assign(pixels, pixels + static_cast<size_t>(w) * h * 4);
+        data.hasAlpha = scanForAlpha(data.pixels);
         stbi_image_free(pixels);
 
         m_scene.textures.push_back(std::move(data));
@@ -290,15 +343,18 @@ void convertMaterials(const aiScene* ai, Scene& scene, TextureCache& textures)
         if (int unlit = 0; src->Get("$mat.gltf.unlit", 0, 0, unlit) == AI_SUCCESS)
             dst.unlit = unlit != 0;
 
+        bool alphaModeDeclared = false;
         if (aiString mode; src->Get("$mat.gltf.alphaMode", 0, 0, mode) == AI_SUCCESS)
         {
             const std::string m = mode.C_Str();
-            if (m == "MASK")       dst.alphaMode = AlphaMode::Mask;
-            else if (m == "BLEND") dst.alphaMode = AlphaMode::Blend;
+            if (m == "MASK")       { dst.alphaMode = AlphaMode::Mask;  alphaModeDeclared = true; }
+            else if (m == "BLEND") { dst.alphaMode = AlphaMode::Blend; alphaModeDeclared = true; }
+            else if (m == "OPAQUE") alphaModeDeclared = true;
         }
         else if (dst.baseColorFactor.a < 0.999f)
         {
-            dst.alphaMode = AlphaMode::Blend;
+            dst.alphaMode      = AlphaMode::Blend;
+            alphaModeDeclared  = true;
         }
 
         if (float cutoff = 0.5f; src->Get("$mat.gltf.alphaCutoff", 0, 0, cutoff) == AI_SUCCESS)
@@ -320,12 +376,71 @@ void convertMaterials(const aiScene* ai, Scene& scene, TextureCache& textures)
 
         dst.emissiveTexture = textures.acquire(src, aiTextureType_EMISSIVE, true);
 
+        // FBX and OBJ keep transparency in a separate opacity map rather than
+        // in the base colour's alpha channel, which is how Mixamo and most DCC
+        // exporters write hair and eyelashes. Fold it in so there is something
+        // for the mask to test against.
+        const int opacityTexture = textures.acquire(src, aiTextureType_OPACITY, false);
+        if (opacityTexture != kInvalidIndex)
+        {
+            const int merged = textures.combineAlpha(dst.baseColorTexture, opacityTexture);
+            if (merged != dst.baseColorTexture)
+            {
+                dst.baseColorTexture = merged;
+                log::info("Material '", dst.name, "': folded opacity map into base colour alpha");
+            }
+        }
+
+        // What Assimp actually offers for this material, so a missing alpha
+        // source is visible rather than guessed at.
+        {
+            std::string available;
+            const std::pair<aiTextureType, const char*> kTypes[] = {
+                {aiTextureType_BASE_COLOR, "baseColor"}, {aiTextureType_DIFFUSE, "diffuse"},
+                {aiTextureType_NORMALS, "normals"},      {aiTextureType_METALNESS, "metalness"},
+                {aiTextureType_DIFFUSE_ROUGHNESS, "roughness"}, {aiTextureType_OPACITY, "opacity"},
+                {aiTextureType_EMISSIVE, "emissive"},    {aiTextureType_LIGHTMAP, "lightmap"},
+                {aiTextureType_SPECULAR, "specular"},    {aiTextureType_UNKNOWN, "unknown"},
+            };
+            for (const auto& [type, label] : kTypes)
+                if (src->GetTextureCount(type) > 0)
+                    available += std::string(available.empty() ? "" : ", ") + label +
+                                 "x" + std::to_string(src->GetTextureCount(type));
+
+            const bool baseHasAlpha =
+                dst.baseColorTexture != kInvalidIndex &&
+                scene.textures[static_cast<size_t>(dst.baseColorTexture)].hasAlpha;
+
+            log::info("Material '", dst.name, "': assimp textures [", available,
+                      "]  baseColourHasAlpha=", baseHasAlpha ? "yes" : "no");
+        }
+
+        // Only glTF carries an alpha mode. Every other format leaves it to the
+        // renderer to notice, and the signal authors rely on is an alpha
+        // channel in the base colour texture -- which is how hair cards and
+        // eyelashes are made. Without this they render as opaque quads with
+        // visible rectangular edges.
+        if (!alphaModeDeclared && dst.baseColorTexture != kInvalidIndex &&
+            static_cast<size_t>(dst.baseColorTexture) < scene.textures.size() &&
+            scene.textures[static_cast<size_t>(dst.baseColorTexture)].hasAlpha)
+        {
+            // Mask rather than Blend: cut-outs need no sorting and do not
+            // interact badly with the depth buffer, and foliage, hair and
+            // lashes are overwhelmingly cut-outs rather than true glass.
+            dst.alphaMode = AlphaMode::Mask;
+            log::info("Material '", dst.name,
+                      "': base colour texture has alpha and the format declares no "
+                      "alpha mode; treating as MASK");
+        }
+
         // Which image landed in which slot, so a mix-up is visible in the log
         // rather than only in the render.
         log::info("Material '", dst.name, "': base=", dst.baseColorTexture,
                   " normal=", dst.normalTexture,
                   " metalRough=", dst.metalRoughTexture,
-                  " emissive=", dst.emissiveTexture);
+                  " emissive=", dst.emissiveTexture,
+                  " alpha=", dst.alphaMode == AlphaMode::Opaque ? "opaque"
+                           : dst.alphaMode == AlphaMode::Mask   ? "mask" : "blend");
 
         // A texture-less material with an untouched base colour is what the
         // colour wheel in the UI drives; flag it by leaving the factor white.

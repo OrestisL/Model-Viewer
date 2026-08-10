@@ -1138,6 +1138,9 @@ void UiLayer::drawViewerPanel(App& app)
     {
         ImGui::Checkbox("Wireframe", &settings.wireframe);
         ImGui::Checkbox("Backface culling", &settings.backfaceCulling);
+        helpMarker("Off by default, so everything renders double sided. Hair "
+                   "cards, foliage and clothing are frequently single-sided "
+                   "geometry that disappears from one side when culled.");
 
         int debugView = static_cast<int>(settings.debugView);
         const char* names[static_cast<int>(gfx::DebugView::Count)];
@@ -1347,8 +1350,8 @@ void UiLayer::drawModelPanel(App& app)
 
                 auto textureRow = [&](const char* label, int index) {
                     if (index == kInvalidIndex) return;
-                    ImGui::BulletText("%s: %s", label,
-                                      scene.textures[static_cast<size_t>(index)].name.c_str());
+                    const TextureData& tex = scene.textures[static_cast<size_t>(index)];
+                    ImGui::BulletText("%s: %s", label, tex.name.c_str());
                 };
 
                 textureRow("base colour",        material.baseColorTexture);
@@ -1356,9 +1359,33 @@ void UiLayer::drawModelPanel(App& app)
                 textureRow("metallic/roughness", material.metalRoughTexture);
                 textureRow("emissive",           material.emissiveTexture);
 
-                if (material.alphaMode == AlphaMode::Blend) ImGui::BulletText("alpha: blend");
-                if (material.alphaMode == AlphaMode::Mask)  ImGui::BulletText("alpha: mask");
-                if (material.doubleSided)                   ImGui::BulletText("double sided");
+                // Editable rather than reported: alpha mode is the single most
+                // commonly wrong thing in exported assets, and a viewer that
+                // cannot correct it is stuck showing hair as opaque cards.
+                Material& editable = app.scene().materials[i];
+
+                // Alpha mode can only do something if there is alpha to read.
+                // Saying so here saves working out why Mask changes nothing.
+                const bool hasAlpha =
+                    editable.baseColorTexture != kInvalidIndex &&
+                    scene.textures[static_cast<size_t>(editable.baseColorTexture)].hasAlpha;
+
+                if (!hasAlpha)
+                    ImGui::TextColored(ImVec4(0.95f, 0.72f, 0.28f, 1.0f),
+                                       "Base colour texture has no alpha channel");
+
+                int alpha = static_cast<int>(editable.alphaMode);
+                if (ImGui::Combo("Alpha", &alpha, "Opaque\0Mask\0Blend\0"))
+                    editable.alphaMode = static_cast<AlphaMode>(alpha);
+
+                ImGui::BeginDisabled(editable.alphaMode != AlphaMode::Mask);
+                ImGui::SliderFloat("Cutoff", &editable.alphaCutoff, 0.0f, 1.0f, "%.2f");
+                ImGui::EndDisabled();
+
+                ImGui::Checkbox("Double sided", &editable.doubleSided);
+                helpMarker("Hair cards and foliage are usually double sided; with "
+                           "backface culling on, single-sided cards vanish from "
+                           "one direction.");
 
                 ImGui::TreePop();
             }
