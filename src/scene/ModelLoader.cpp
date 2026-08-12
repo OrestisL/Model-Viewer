@@ -5,7 +5,10 @@
 #include <string>
 #include <cctype>
 #include <cstring>
+#include <fstream>
+#include <iterator>
 #include <unordered_map>
+#include <vector>
 
 #include <cmath>
 
@@ -21,6 +24,7 @@
 #include <stb_image.h>
 
 #include "core/Log.hpp"
+#include "core/Utf8.hpp"
 #include "scene/UsdBackend.hpp"
 
 namespace fs = std::filesystem;
@@ -212,16 +216,31 @@ private:
             return kInvalidIndex;
         }
 
+        // Read via an fs::path stream rather than stbi_load(const char*): on
+        // Windows stb opens with fopen (ANSI), which cannot see a file whose
+        // name has non-ANSI characters, and resolved.string() would throw on
+        // one anyway. std::ifstream takes the path directly and uses the wide
+        // handle, then stb decodes the bytes from memory.
+        std::ifstream stream(resolved, std::ios::binary);
+        if (!stream)
+        {
+            log::warn("Texture not found: ", pathToUtf8(resolved));
+            return kInvalidIndex;
+        }
+        const std::vector<unsigned char> bytes(
+            (std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+
         int w = 0, h = 0, channels = 0;
-        stbi_uc* pixels = stbi_load(resolved.string().c_str(), &w, &h, &channels, 4);
+        stbi_uc* pixels = stbi_load_from_memory(bytes.data(), static_cast<int>(bytes.size()),
+                                                &w, &h, &channels, 4);
         if (!pixels)
         {
-            log::warn("Failed to decode texture ", resolved.string(), ": ", stbi_failure_reason());
+            log::warn("Failed to decode texture ", pathToUtf8(resolved), ": ", stbi_failure_reason());
             return kInvalidIndex;
         }
 
         TextureData data;
-        data.name   = resolved.filename().string();
+        data.name   = pathToUtf8(resolved.filename());
         data.width  = static_cast<uint32_t>(w);
         data.height = static_cast<uint32_t>(h);
         data.srgb   = srgb;
@@ -855,7 +874,7 @@ namespace {
 /// shows up here in builds configured with -DMV_ENABLE_USD=ON.
 bool assimpSupports(const fs::path& path)
 {
-    std::string ext = path.extension().string();
+    std::string ext = pathToUtf8(path.extension());
     if (ext.empty()) return false;
     if (ext.front() == '.') ext.erase(ext.begin());
     std::transform(ext.begin(), ext.end(), ext.begin(),
@@ -875,7 +894,7 @@ bool ModelLoader::load(const fs::path&      path,
     std::error_code ec;
     if (!fs::exists(path, ec))
     {
-        outError = "File does not exist: " + path.string();
+        outError = "File does not exist: " + pathToUtf8(path);
         return false;
     }
 
@@ -894,7 +913,7 @@ bool ModelLoader::load(const fs::path&      path,
     // from once it has been entered.
     if (!assimpSupports(path))
     {
-        std::string ext = path.extension().string();
+        std::string ext = pathToUtf8(path.extension());
         std::transform(ext.begin(), ext.end(), ext.begin(),
                        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
@@ -926,7 +945,13 @@ bool ModelLoader::load(const fs::path&      path,
     // was malformed is not acceptable in a viewer.
     try
     {
-        asset->scene = asset->importer.ReadFile(path.string(), postProcessFlags(options));
+        // pathToUtf8 rather than path.string(): the latter throws on any path
+        // character absent from the ANSI code page. Note that Assimp's default
+        // file I/O still opens this narrow path with fopen, so a model whose
+        // name has non-ASCII characters may fail to open on Windows even now --
+        // fixing that would need a custom Assimp::IOSystem. For ASCII paths the
+        // bytes are identical, and this at least never crashes the viewer.
+        asset->scene = asset->importer.ReadFile(pathToUtf8(path), postProcessFlags(options));
     }
     catch (const std::exception& e)
     {
@@ -945,7 +970,7 @@ bool ModelLoader::load(const fs::path&      path,
         if (outError.empty()) outError = "Assimp returned no scene";
 
         // Give the specific advice rather than "unknown file format".
-        std::string ext = path.extension().string();
+        std::string ext = pathToUtf8(path.extension());
         std::transform(ext.begin(), ext.end(), ext.begin(),
                        [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
@@ -964,7 +989,7 @@ bool ModelLoader::load(const fs::path&      path,
     const aiScene* ai = asset->scene;
 
     Scene scene;
-    scene.sourcePath   = path.string();
+    scene.sourcePath   = pathToUtf8(path);
     scene.importerName = "assimp";
     scene.unitScale    = options.importScale;
 
@@ -994,7 +1019,7 @@ bool ModelLoader::load(const fs::path&      path,
     scene.updateBounds();
     scene.source = std::move(asset);
 
-    log::info("Imported ", path.filename().string(), ": ",
+    log::info("Imported ", pathToUtf8(path.filename()), ": ",
               scene.meshes.size(), " meshes, ",
               scene.vertices.size(), " vertices, ",
               scene.materials.size(), " materials, ",
@@ -1049,7 +1074,7 @@ bool ModelLoader::exportScene(const Scene&       scene,
         fs::create_directories(path.parent_path(), ec);
 
     Assimp::Exporter exporter;
-    const aiReturn   result = exporter.Export(asset->scene, formatId, path.string(),
+    const aiReturn   result = exporter.Export(asset->scene, formatId, pathToUtf8(path),
                                               aiProcess_ValidateDataStructure);
 
     if (result != AI_SUCCESS)
@@ -1059,7 +1084,7 @@ bool ModelLoader::exportScene(const Scene&       scene,
         return false;
     }
 
-    log::info("Exported to ", path.string(), " (", formatId, ")");
+    log::info("Exported to ", pathToUtf8(path), " (", formatId, ")");
     return true;
 }
 
@@ -1103,7 +1128,7 @@ const std::vector<std::string>& ModelLoader::importExtensions()
 bool ModelLoader::canLoad(const fs::path& path)
 {
     if (!path.has_extension()) return false;
-    const std::string ext = lower(path.extension().string().substr(1));
+    const std::string ext = lower(pathToUtf8(path.extension()).substr(1));
     const auto&       all = importExtensions();
     return std::find(all.begin(), all.end(), ext) != all.end();
 }

@@ -19,6 +19,7 @@
 
 #include "App.hpp"
 #include "core/Log.hpp"
+#include "core/Utf8.hpp"
 #include "core/Window.hpp"
 #include "scene/ModelLoader.hpp"
 #include "scene/UsdBackend.hpp"
@@ -48,7 +49,7 @@ std::string configFilePath(const char* name)
     fs::create_directories(dir, ec);
     if (ec) return {};
 
-    return (dir / name).string();
+    return pathToUtf8(dir / name);
 }
 
 } // namespace
@@ -709,7 +710,7 @@ void UiLayer::drawMenuBar(App& app)
 
             std::vector<std::string> extensions = ModelLoader::importExtensions();
             fs::path start;
-            if (!app.modelPath().empty()) start = fs::path(app.modelPath()).parent_path();
+            if (!app.modelPath().empty()) start = pathFromUtf8(app.modelPath()).parent_path();
 
             m_browser.open(FileBrowser::Mode::Open, "Open a 3D model",
                            std::move(extensions), start);
@@ -1268,7 +1269,7 @@ void UiLayer::drawModelPanel(App& app)
 
     const Scene& scene = app.scene();
 
-    ImGui::TextWrapped("%s", fs::path(scene.sourcePath).filename().string().c_str());
+    ImGui::TextWrapped("%s", pathToUtf8(pathFromUtf8(scene.sourcePath).filename()).c_str());
     ImGui::TextDisabled("%s", scene.sourcePath.c_str());
     ImGui::Separator();
 
@@ -1617,9 +1618,9 @@ void UiLayer::drawDialogs(App& app)
                 {
                     m_pending = PendingAction::Export;
 
-                    const fs::path source = fs::path(app.modelPath());
+                    const fs::path source = pathFromUtf8(app.modelPath());
                     const std::string suggested =
-                        source.stem().string() + "." + selected.extension;
+                        pathToUtf8(source.stem()) + "." + selected.extension;
 
                     m_browser.open(FileBrowser::Mode::Save, "Export as " + selected.description,
                                    {selected.extension}, source.parent_path(), suggested);

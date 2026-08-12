@@ -8,6 +8,7 @@
 #include <stdexcept>
 
 #include "core/Log.hpp"
+#include "core/Utf8.hpp"
 #include "scene/Scene.hpp"
 
 #if defined(_WIN32)
@@ -298,9 +299,9 @@ std::string shaderDirectory()
         std::error_code ec;
         for (const fs::path& candidate : candidates)
             if (fs::is_directory(candidate, ec))
-                return fs::weakly_canonical(candidate, ec).string();
+                return pathToUtf8(fs::weakly_canonical(candidate, ec));
 
-        return (exeDir / MV_SHADER_DIR).string();
+        return pathToUtf8(exeDir / MV_SHADER_DIR);
     }();
 
     return directory;
@@ -308,16 +309,16 @@ std::string shaderDirectory()
 
 VkShaderModule loadShaderModule(Context& context, const std::string& name)
 {
-    const fs::path path = fs::path(shaderDirectory()) / (name + ".spv");
+    const fs::path path = pathFromUtf8(shaderDirectory()) / (name + ".spv");
 
     std::ifstream file(path, std::ios::binary | std::ios::ate);
     if (!file)
-        throw std::runtime_error("Cannot open shader module: " + path.string() +
+        throw std::runtime_error("Cannot open shader module: " + pathToUtf8(path) +
                                  "\nWere the shaders compiled? Check the build output.");
 
     const std::streamsize size = file.tellg();
     if (size <= 0 || (size % 4) != 0)
-        throw std::runtime_error("Malformed SPIR-V module: " + path.string());
+        throw std::runtime_error("Malformed SPIR-V module: " + pathToUtf8(path));
 
     std::vector<uint32_t> code(static_cast<size_t>(size) / 4);
     file.seekg(0);

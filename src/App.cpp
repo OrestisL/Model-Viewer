@@ -8,6 +8,7 @@
 #include <imgui.h>
 
 #include "core/Log.hpp"
+#include "core/Utf8.hpp"
 
 namespace fs = std::filesystem;
 
@@ -111,7 +112,7 @@ int App::run(const std::vector<std::string>& arguments)
         {
             const std::string file = m_pendingFiles.front();
             m_pendingFiles.clear();
-            loadModel(file);
+            loadModel(pathFromUtf8(file));
         }
 
         const auto now = std::chrono::steady_clock::now();
@@ -208,8 +209,8 @@ void App::quit() { m_running = false; }
 
 bool App::loadModel(const fs::path& path)
 {
-    setStatus("Loading " + path.filename().string() + "...");
-    log::info("Loading ", path.string());
+    setStatus("Loading " + pathToUtf8(path.filename()) + "...");
+    log::info("Loading ", pathToUtf8(path));
 
     Scene       loaded;
     std::string error;
@@ -242,7 +243,7 @@ bool App::loadModel(const fs::path& path)
 
     updateWindowTitle();
 
-    setStatus(path.filename().string() + " loaded: " +
+    setStatus(pathToUtf8(path.filename()) + " loaded: " +
               std::to_string(m_scene.meshes.size()) + " meshes, " +
               std::to_string(m_scene.indices.size() / 3) + " triangles" +
               (m_scene.animations.empty()
@@ -268,7 +269,7 @@ bool App::exportModel(const fs::path& path, const std::string& formatId)
         return false;
     }
 
-    setStatus("Exported to " + path.string());
+    setStatus("Exported to " + pathToUtf8(path));
     return true;
 }
 
@@ -321,7 +322,7 @@ void App::updateWindowTitle()
         m_window.setTitle("ModelViewer");
     else
         m_window.setTitle("ModelViewer - " +
-                          fs::path(m_scene.sourcePath).filename().string());
+                          pathToUtf8(pathFromUtf8(m_scene.sourcePath).filename()));
 }
 
 } // namespace mv

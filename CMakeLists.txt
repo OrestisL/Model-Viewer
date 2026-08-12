@@ -52,6 +52,7 @@ set(MV_SOURCES
     src/core/Window.cpp
     src/core/Camera.cpp
     src/core/Crash.cpp
+    src/core/Utf8.cpp
 
     src/vk/Context.cpp
     src/vk/Resources.cpp

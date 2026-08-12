@@ -1,8 +1,11 @@
 #include "core/Window.hpp"
 
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <system_error>
+#include <vector>
 
 #if defined(_WIN32)
 #  include <windows.h>
@@ -17,6 +20,7 @@
 #include <GLFW/glfw3.h>
 
 #include "core/Log.hpp"
+#include "core/Utf8.hpp"
 
 namespace mv {
 namespace {
@@ -57,7 +61,7 @@ std::string resourcePath(const char* name)
 
     std::error_code ec;
     for (const auto& candidate : candidates)
-        if (std::filesystem::exists(candidate, ec)) return candidate.string();
+        if (std::filesystem::exists(candidate, ec)) return pathToUtf8(candidate);
 
     return {};
 }
@@ -216,8 +220,21 @@ void Window::setIconFromFile(const std::string& path)
     // file matched by app id. Asking anyway only produces an error.
     if (glfwGetPlatform() == GLFW_PLATFORM_WAYLAND) return;
 
+    // Read through an fs::path stream (wide handle on Windows) and decode from
+    // memory, so an install path with non-ASCII characters still loads. path is
+    // UTF-8; pathFromUtf8 turns it back into the native wide path.
+    std::ifstream stream(pathFromUtf8(path), std::ios::binary);
+    if (!stream)
+    {
+        log::warn("Could not open window icon: ", path);
+        return;
+    }
+    const std::vector<unsigned char> bytes(
+        (std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+
     int width = 0, height = 0, channels = 0;
-    unsigned char* pixels = stbi_load(path.c_str(), &width, &height, &channels, 4);
+    unsigned char* pixels = stbi_load_from_memory(bytes.data(), static_cast<int>(bytes.size()),
+                                                  &width, &height, &channels, 4);
     if (!pixels)
     {
         log::warn("Could not load window icon: ", path);

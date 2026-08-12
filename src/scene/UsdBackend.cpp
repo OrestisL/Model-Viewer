@@ -11,6 +11,8 @@
 
 #include "scene/UsdBackend.hpp"
 
+#include "core/Utf8.hpp"
+
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -36,7 +38,7 @@ const std::vector<std::string>& UsdBackend::extensions()
 
 bool UsdBackend::handles(const fs::path& path)
 {
-    std::string ext = path.extension().string();
+    std::string ext = pathToUtf8(path.extension());
     if (ext.empty()) return false;
     if (ext.front() == '.') ext.erase(ext.begin());
     for (char& c : ext) c = static_cast<char>(::tolower(static_cast<unsigned char>(c)));
@@ -49,7 +51,7 @@ bool UsdBackend::handles(const fs::path& path)
 bool UsdBackend::load(const fs::path& path, Scene&, std::string& outError)
 {
     outError = "This build has no USD support. Reconfigure with "
-               "-DMV_ENABLE_USD=ON, or convert " + path.filename().string() +
+               "-DMV_ENABLE_USD=ON, or convert " + pathToUtf8(path.filename()) +
                " to glTF first (usdcat or usdzconvert will do it).";
     return false;
 }

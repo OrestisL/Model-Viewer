@@ -1,5 +1,7 @@
 #include "ui/FileBrowser.hpp"
 
+#include "core/Utf8.hpp"
+
 #include <algorithm>
 #include <cctype>
 #include <cstdio>
@@ -95,7 +97,7 @@ void FileBrowser::refresh()
     fs::directory_iterator it(m_directory, fs::directory_options::skip_permission_denied, ec);
     if (ec)
     {
-        m_error = "Cannot read " + m_directory.string() + ": " + ec.message();
+        m_error = "Cannot read " + pathToUtf8(m_directory) + ": " + ec.message();
         return;
     }
 
@@ -103,7 +105,7 @@ void FileBrowser::refresh()
 
     for (const fs::directory_entry& entry : it)
     {
-        const std::string name = entry.path().filename().string();
+        const std::string name = pathToUtf8(entry.path().filename());
         if (name.empty()) continue;
         if (!m_showHidden && name.front() == '.') continue;
 
@@ -117,7 +119,7 @@ void FileBrowser::refresh()
         if (!m_extensions.empty())
         {
             const std::string extension =
-                entry.path().has_extension() ? lower(entry.path().extension().string().substr(1)) : "";
+                entry.path().has_extension() ? lower(pathToUtf8(entry.path().extension()).substr(1)) : "";
             if (std::find(m_extensions.begin(), m_extensions.end(), extension) == m_extensions.end())
                 continue;
         }
@@ -174,7 +176,7 @@ bool FileBrowser::draw()
     if (ImGui::Checkbox("Hidden", &m_showHidden)) m_needsRefresh = true;
 
     ImGui::SameLine();
-    ImGui::TextDisabled("%s", m_directory.string().c_str());
+    ImGui::TextDisabled("%s", pathToUtf8(m_directory).c_str());
 
 #if defined(_WIN32)
     ImGui::TextUnformatted("Drives:");
@@ -211,7 +213,7 @@ bool FileBrowser::draw()
 
                 if (!entry.isDirectory)
                     std::snprintf(m_filenameBuffer, sizeof(m_filenameBuffer), "%s",
-                                  entry.path.filename().string().c_str());
+                                  pathToUtf8(entry.path.filename()).c_str());
 
                 if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
                 {
@@ -255,7 +257,7 @@ bool FileBrowser::draw()
 
     if ((accept || submitted) && m_filenameBuffer[0] != '\0')
     {
-        const fs::path candidate = m_directory / m_filenameBuffer;
+        const fs::path candidate = m_directory / pathFromUtf8(m_filenameBuffer);
 
         std::error_code ec;
         if (fs::is_directory(candidate, ec))
@@ -266,7 +268,7 @@ bool FileBrowser::draw()
         }
         else if (m_mode == Mode::Open && !fs::exists(candidate, ec))
         {
-            m_error = "No such file: " + candidate.string();
+            m_error = "No such file: " + pathToUtf8(candidate);
         }
         else
         {
