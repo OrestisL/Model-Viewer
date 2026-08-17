@@ -66,12 +66,6 @@ Prebuilt binaries for Linux and Windows are attached to each
 [release](../../releases). Extract and run — no installer, no runtime to
 install. The only requirement is a GPU and driver supporting **Vulkan 1.3**.
 
-Releases are produced by CI from a tagged commit:
-
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
 
 ## Building
 
