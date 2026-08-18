@@ -96,13 +96,21 @@ target_link_libraries(ModelViewer PRIVATE
 if(TARGET zlibstatic)
     target_link_libraries(ModelViewer PRIVATE zlibstatic)
     set(MV_ZLIB_TARGET zlibstatic)
+    # zlibstatic (Assimp's bundled zlib) does NOT export its header directory as
+    # an INTERFACE include on all generators -- notably MSVC. The main target
+    # still finds <zlib.h> because it also links assimp::assimp, whose interface
+    # includes carry that path. Capture those so standalone targets (the splat
+    # tools) that link zlibstatic but not Assimp can compile too.
+    set(MV_ZLIB_INCLUDES $<TARGET_PROPERTY:assimp::assimp,INTERFACE_INCLUDE_DIRECTORIES>)
 elseif(TARGET ZLIB::ZLIB)
     target_link_libraries(ModelViewer PRIVATE ZLIB::ZLIB)
     set(MV_ZLIB_TARGET ZLIB::ZLIB)
+    set(MV_ZLIB_INCLUDES "")   # a real ZLIB::ZLIB exports its own headers
 else()
     find_package(ZLIB REQUIRED)
     target_link_libraries(ModelViewer PRIVATE ZLIB::ZLIB)
     set(MV_ZLIB_TARGET ZLIB::ZLIB)
+    set(MV_ZLIB_INCLUDES "")
 endif()
 
 target_compile_definitions(ModelViewer PRIVATE
@@ -126,7 +134,7 @@ if(MV_BUILD_SPLAT_TOOLS)
         tools/splat_inspect.cpp
         src/scene/SplatLoader.cpp
         src/core/Utf8.cpp)
-    target_include_directories(splat_inspect PRIVATE src)
+    target_include_directories(splat_inspect PRIVATE src ${MV_ZLIB_INCLUDES})
     target_link_libraries(splat_inspect PRIVATE glm::glm ${MV_ZLIB_TARGET})
     target_compile_features(splat_inspect PRIVATE cxx_std_20)
 
@@ -135,7 +143,7 @@ if(MV_BUILD_SPLAT_TOOLS)
         tools/radix_ref.cpp
         src/scene/SplatLoader.cpp
         src/core/Utf8.cpp)
-    target_include_directories(radix_ref PRIVATE src)
+    target_include_directories(radix_ref PRIVATE src ${MV_ZLIB_INCLUDES})
     target_link_libraries(radix_ref PRIVATE glm::glm ${MV_ZLIB_TARGET})
     target_compile_features(radix_ref PRIVATE cxx_std_20)
 
@@ -144,7 +152,7 @@ if(MV_BUILD_SPLAT_TOOLS)
         tools/sh_ref.cpp
         src/scene/SplatLoader.cpp
         src/core/Utf8.cpp)
-    target_include_directories(sh_ref PRIVATE src)
+    target_include_directories(sh_ref PRIVATE src ${MV_ZLIB_INCLUDES})
     target_link_libraries(sh_ref PRIVATE glm::glm ${MV_ZLIB_TARGET})
     target_compile_features(sh_ref PRIVATE cxx_std_20)
 endif()
