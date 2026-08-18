@@ -1,0 +1,40 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// Radix pass, dispatch 1 of 3: per-tile digit histogram, bin-major output
+// (tileHist[bin * numTiles + tile]). src index buffer chosen by pc.srcIsA.
+
+#include "splat_sort.glsl"
+
+struct GpuSplat { vec4 posOpacity; vec4 color; vec4 cov0; vec4 cov1; };
+layout(std430, set = 0, binding = 0) readonly buffer SplatBlock { GpuSplat splats[]; };
+layout(std430, set = 0, binding = 1) buffer KeyBlock   { uint keys[]; };
+layout(std430, set = 0, binding = 2) buffer Idx0Block  { uint index0[]; };
+layout(std430, set = 0, binding = 3) buffer Idx1Block  { uint index1[]; };
+layout(std430, set = 0, binding = 4) buffer HistBlock  { uint tileHist[]; };
+
+shared uint sHist[RADIX];
+layout(local_size_x = WG_SIZE) in;
+
+uint srcIndex(uint e) { return pc.srcIsA == 1u ? index0[e] : index1[e]; }
+
+void main()
+{
+    const uint tile = gl_WorkGroupID.x;
+    const uint lid  = gl_LocalInvocationID.x;
+
+    for (uint b = lid; b < RADIX; b += WG_SIZE) sHist[b] = 0u;
+    barrier();
+
+    const uint start = tile * ELEMS_PER_TILE;
+    const uint end   = min(start + ELEMS_PER_TILE, pc.numElements);
+    for (uint e = start + lid; e < end; e += WG_SIZE)
+    {
+        uint digit = (keys[srcIndex(e)] >> pc.shift) & (RADIX - 1u);
+        atomicAdd(sHist[digit], 1u);
+    }
+    barrier();
+
+    for (uint b = lid; b < RADIX; b += WG_SIZE)
+        tileHist[b * pc.numTiles + tile] = sHist[b];
+}

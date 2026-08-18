@@ -10,6 +10,7 @@
 #include "scene/History.hpp"
 #include "scene/ModelLoader.hpp"
 #include "scene/Scene.hpp"
+#include "scene/SplatCloud.hpp"
 #include "ui/UiLayer.hpp"
 #include "vk/Context.hpp"
 #include "vk/Renderer.hpp"
@@ -30,6 +31,7 @@ public:
 
     // -- actions the UI can trigger ---------------------------------------
     bool loadModel(const std::filesystem::path& path);
+    bool loadSplat(const std::filesystem::path& path);
     bool exportModel(const std::filesystem::path& path, const std::string& formatId);
     void closeModel();
     void focusCamera();
@@ -47,10 +49,16 @@ public:
     ImportOptions&       importOptions()  { return m_importOptions; }
     const gfx::Context&  context() const  { return m_context; }
     const gfx::Renderer& renderer() const { return m_renderer; }
+    gfx::Renderer&       renderer()       { return m_renderer; }
 
-    bool               hasModel() const { return !m_scene.empty(); }
+    bool               hasModel() const { return !m_scene.empty() || !m_splatCloud.empty(); }
+    const SplatCloud&  splatCloud() const { return m_splatCloud; }
+    bool               hasSplats() const { return !m_splatCloud.empty(); }
     const std::string& status() const   { return m_status; }
-    const std::string& modelPath() const { return m_scene.sourcePath; }
+    const std::string& modelPath() const
+    {
+        return m_scene.sourcePath.empty() ? m_splatCloud.sourcePath : m_scene.sourcePath;
+    }
     float              deltaTime() const { return m_deltaTime; }
     float              fps() const { return m_fps; }
 
@@ -68,6 +76,7 @@ private:
     UiLayer       m_ui;
 
     Scene         m_scene;
+    SplatCloud    m_splatCloud;
     Animator      m_animator;
     History       m_history;
     Camera        m_camera;

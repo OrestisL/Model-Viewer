@@ -41,7 +41,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: build/linux-dist/_deps
-          key: deps-linux-${{ hashFiles('cmake/Dependencies.cmake') }}
+          key: deps-linux-usd-${{ hashFiles('cmake/Dependencies.cmake') }}
 
       # On a tag build, stamp the tag into the package name; otherwise the
       # archive keeps the fallback version from CMakeLists and a v1.0.0
@@ -53,7 +53,14 @@ jobs:
           fi
 
       - name: Configure
-        run: cmake --preset linux-dist ${MV_VERSION:+-DMV_VERSION=$MV_VERSION}
+        # USD import (Assimp + tinyusdz) and the standalone splat validation
+        # tools are enabled for the published builds. USD adds a few minutes to
+        # a cold build; it is cached via _deps afterwards.
+        run: >
+          cmake --preset linux-dist
+          -DMV_ENABLE_USD=ON
+          -DMV_BUILD_SPLAT_TOOLS=ON
+          ${MV_VERSION:+-DMV_VERSION=$MV_VERSION}
 
       - name: Build
         run: cmake --build --preset linux-dist
@@ -130,7 +137,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: build/windows-dist/_deps
-          key: deps-windows-${{ hashFiles('cmake/Dependencies.cmake') }}
+          key: deps-windows-usd-${{ hashFiles('cmake/Dependencies.cmake') }}
 
       - name: Show toolchain
         shell: pwsh
@@ -148,10 +155,13 @@ jobs:
           }
 
       - name: Configure
+        # USD import (Assimp + tinyusdz) and the standalone splat validation
+        # tools are enabled for the published builds.
         shell: pwsh
         run: |
-          if ($env:MV_VERSION) { cmake --preset windows-dist "-DMV_VERSION=$env:MV_VERSION" }
-          else                 { cmake --preset windows-dist }
+          $flags = @('-DMV_ENABLE_USD=ON', '-DMV_BUILD_SPLAT_TOOLS=ON')
+          if ($env:MV_VERSION) { $flags += "-DMV_VERSION=$env:MV_VERSION" }
+          cmake --preset windows-dist @flags
 
       - name: Show CMake error log on failure
         if: failure()

@@ -1,0 +1,44 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// Radix pass, dispatch 3 of 3: stable scatter. One workgroup per tile; a single
+// thread scatters the tile's elements in order (stability required for LSD
+// radix). src/dst index buffers chosen by pc.srcIsA.
+
+#include "splat_sort.glsl"
+
+struct GpuSplat { vec4 posOpacity; vec4 color; vec4 cov0; vec4 cov1; };
+layout(std430, set = 0, binding = 0) readonly buffer SplatBlock { GpuSplat splats[]; };
+layout(std430, set = 0, binding = 1) buffer KeyBlock   { uint keys[]; };
+layout(std430, set = 0, binding = 2) buffer Idx0Block  { uint index0[]; };
+layout(std430, set = 0, binding = 3) buffer Idx1Block  { uint index1[]; };
+layout(std430, set = 0, binding = 4) buffer HistBlock  { uint tileHist[]; };
+
+shared uint sCursor[RADIX];
+layout(local_size_x = WG_SIZE) in;
+
+uint srcIndex(uint e)        { return pc.srcIsA == 1u ? index0[e] : index1[e]; }
+void dstWrite(uint at, uint v){ if (pc.srcIsA == 1u) index1[at] = v; else index0[at] = v; }
+
+void main()
+{
+    const uint tile = gl_WorkGroupID.x;
+    const uint lid  = gl_LocalInvocationID.x;
+
+    for (uint b = lid; b < RADIX; b += WG_SIZE)
+        sCursor[b] = tileHist[b * pc.numTiles + tile];
+    barrier();
+
+    if (lid == 0u)
+    {
+        const uint start = tile * ELEMS_PER_TILE;
+        const uint end   = min(start + ELEMS_PER_TILE, pc.numElements);
+        for (uint e = start; e < end; ++e)
+        {
+            uint value = srcIndex(e);
+            uint digit = (keys[value] >> pc.shift) & (RADIX - 1u);
+            dstWrite(sCursor[digit], value);
+            sCursor[digit] += 1u;
+        }
+    }
+}

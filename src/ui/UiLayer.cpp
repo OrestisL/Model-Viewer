@@ -22,6 +22,7 @@
 #include "core/Utf8.hpp"
 #include "core/Window.hpp"
 #include "scene/ModelLoader.hpp"
+#include "scene/SplatLoader.hpp"
 #include "scene/UsdBackend.hpp"
 
 namespace fs = std::filesystem;
@@ -709,6 +710,12 @@ void UiLayer::drawMenuBar(App& app)
             m_pending = PendingAction::Open;
 
             std::vector<std::string> extensions = ModelLoader::importExtensions();
+            // Offer splat formats too. ".ply" is already in the mesh list and is
+            // disambiguated at load time; add ".spz" if it isn't present.
+            for (const std::string& e : SplatLoader::importExtensions())
+                if (std::find(extensions.begin(), extensions.end(), e) == extensions.end())
+                    extensions.push_back(e);
+
             fs::path start;
             if (!app.modelPath().empty()) start = pathFromUtf8(app.modelPath()).parent_path();
 
@@ -1263,6 +1270,58 @@ void UiLayer::drawModelPanel(App& app)
         ImGui::TextDisabled("Readable formats include glTF/GLB, FBX, OBJ, STL, DAE, PLY, 3DS and more.");
         if (!UsdBackend::compiledIn())
             ImGui::TextDisabled("USD is not compiled in (configure with -DMV_ENABLE_USD=ON).");
+        ImGui::End();
+        return;
+    }
+
+    // Gaussian-splat clouds have their own (mesh-less) info panel.
+    if (app.hasSplats())
+    {
+        const SplatCloud& cloud = app.splatCloud();
+        ImGui::TextWrapped("%s", pathToUtf8(pathFromUtf8(cloud.sourcePath).filename()).c_str());
+        ImGui::TextDisabled("%s", cloud.sourcePath.c_str());
+        ImGui::Separator();
+
+        if (ImGui::BeginTable("##splatcounts", 2, ImGuiTableFlags_SizingStretchProp))
+        {
+            auto row = [](const char* label, const std::string& value) {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("%s", label);
+                ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted(value.c_str());
+            };
+            row("Gaussians", std::to_string(cloud.count()));
+            row("SH degree", std::to_string(cloud.shDegree));
+            row("Importer",  cloud.importerName);
+            ImGui::EndTable();
+        }
+
+        ImGui::Separator();
+        ImGui::SliderFloat("Splat size", &app.settings().splatScale, 0.25f, 3.0f, "%.2fx");
+
+        bool gpuSort = app.renderer().splatGpuSort();
+        if (ImGui::Checkbox("GPU radix sort", &gpuSort))
+            app.renderer().setSplatGpuSort(gpuSort);
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("On: depth-sort splats on the GPU (fast).\n"
+                              "Off: CPU std::sort fallback. Toggle to compare or\n"
+                              "to isolate a sorting issue.");
+
+        bool sh = app.renderer().splatShEnabled();
+        if (ImGui::Checkbox("View-dependent colour (SH)", &sh))
+            app.renderer().setSplatShEnabled(sh);
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("On: evaluate spherical harmonics for view-dependent\n"
+                              "colour (degree %d). Off: flat DC-only colour.",
+                              app.renderer().splatShDegree());
+
+        ImGui::TextDisabled("Renderer: SH degree %d, %s sort.",
+                            app.renderer().splatShDegree(),
+                            app.renderer().splatGpuSort() ? "GPU" : "CPU");
+
         ImGui::End();
         return;
     }

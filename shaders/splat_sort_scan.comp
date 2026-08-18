@@ -1,0 +1,45 @@
+#version 450
+#extension GL_GOOGLE_include_directive : require
+
+// Radix pass, dispatch 2 of 3: bin-major tile histogram -> global base offsets,
+// in place. Single workgroup, one thread per bin.
+
+#include "splat_sort.glsl"
+
+struct GpuSplat { vec4 posOpacity; vec4 color; vec4 cov0; vec4 cov1; };
+layout(std430, set = 0, binding = 0) readonly buffer SplatBlock { GpuSplat splats[]; };
+layout(std430, set = 0, binding = 1) buffer KeyBlock   { uint keys[]; };
+layout(std430, set = 0, binding = 2) buffer Idx0Block  { uint index0[]; };
+layout(std430, set = 0, binding = 3) buffer Idx1Block  { uint index1[]; };
+layout(std430, set = 0, binding = 4) buffer HistBlock  { uint tileHist[]; };
+
+shared uint sDigitTotal[RADIX];
+shared uint sDigitBase[RADIX];
+layout(local_size_x = RADIX) in;
+
+void main()
+{
+    const uint b = gl_LocalInvocationID.x;   // one thread per bin
+
+    uint running = 0u;
+    for (uint t = 0u; t < pc.numTiles; ++t)
+    {
+        uint idx = b * pc.numTiles + t;
+        uint cnt = tileHist[idx];
+        tileHist[idx] = running;   // exclusive tile-prefix
+        running += cnt;
+    }
+    sDigitTotal[b] = running;
+    barrier();
+
+    if (b == 0u)
+    {
+        uint acc = 0u;
+        for (uint k = 0u; k < RADIX; ++k) { sDigitBase[k] = acc; acc += sDigitTotal[k]; }
+    }
+    barrier();
+
+    uint base = sDigitBase[b];
+    for (uint t = 0u; t < pc.numTiles; ++t)
+        tileHist[b * pc.numTiles + t] += base;
+}

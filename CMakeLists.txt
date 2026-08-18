@@ -57,10 +57,13 @@ set(MV_SOURCES
     src/vk/Context.cpp
     src/vk/Resources.cpp
     src/vk/Renderer.cpp
+    src/vk/SplatRenderer.cpp
+    src/vk/SplatSorter.cpp
 
     src/scene/Scene.cpp
     src/scene/History.cpp
     src/scene/ModelLoader.cpp
+    src/scene/SplatLoader.cpp
     src/scene/Animator.cpp
     src/scene/UsdBackend.cpp
 
@@ -84,6 +87,24 @@ target_link_libraries(ModelViewer PRIVATE
     imgui
     stb)
 
+# -- zlib, for SPZ (Gaussian-splat) gzip decompression -----------------------
+# SPZ files are gzip streams, so SplatLoader.cpp needs an inflate routine.
+# Assimp is fetched with ASSIMP_BUILD_ZLIB ON, which builds a `zlibstatic`
+# target in this same build tree -- reuse it so no new external dependency is
+# introduced. Fall back to a system zlib if that target isn't present (e.g. if
+# Assimp is ever swapped for a system package), and error clearly otherwise.
+if(TARGET zlibstatic)
+    target_link_libraries(ModelViewer PRIVATE zlibstatic)
+    set(MV_ZLIB_TARGET zlibstatic)
+elseif(TARGET ZLIB::ZLIB)
+    target_link_libraries(ModelViewer PRIVATE ZLIB::ZLIB)
+    set(MV_ZLIB_TARGET ZLIB::ZLIB)
+else()
+    find_package(ZLIB REQUIRED)
+    target_link_libraries(ModelViewer PRIVATE ZLIB::ZLIB)
+    set(MV_ZLIB_TARGET ZLIB::ZLIB)
+endif()
+
 target_compile_definitions(ModelViewer PRIVATE
     GLFW_INCLUDE_VULKAN
     GLFW_INCLUDE_NONE
@@ -94,6 +115,39 @@ target_compile_definitions(ModelViewer PRIVATE
     $<$<BOOL:${MV_ENABLE_USD}>:MV_USD_VIA_ASSIMP=1>
     $<$<BOOL:${MV_ENABLE_DRACO}>:MV_WITH_DRACO=1>
     $<$<AND:$<BOOL:${MV_ENABLE_VALIDATION}>,$<CONFIG:Debug,RelWithDebInfo>>:MV_VALIDATION=1>)
+
+# -- optional standalone splat loader validation tool ------------------------
+# Builds without Vulkan: compiles SplatLoader against the real headers and
+# prints a summary of any .ply/.spz splat file. Handy for validating the loader
+# on real data. Enable with -DMV_BUILD_SPLAT_TOOLS=ON.
+option(MV_BUILD_SPLAT_TOOLS "Build the standalone splat_inspect tool" OFF)
+if(MV_BUILD_SPLAT_TOOLS)
+    add_executable(splat_inspect
+        tools/splat_inspect.cpp
+        src/scene/SplatLoader.cpp
+        src/core/Utf8.cpp)
+    target_include_directories(splat_inspect PRIVATE src)
+    target_link_libraries(splat_inspect PRIVATE glm::glm ${MV_ZLIB_TARGET})
+    target_compile_features(splat_inspect PRIVATE cxx_std_20)
+
+    # Validates the GPU radix sort's algorithm on the CPU against real clouds.
+    add_executable(radix_ref
+        tools/radix_ref.cpp
+        src/scene/SplatLoader.cpp
+        src/core/Utf8.cpp)
+    target_include_directories(radix_ref PRIVATE src)
+    target_link_libraries(radix_ref PRIVATE glm::glm ${MV_ZLIB_TARGET})
+    target_compile_features(radix_ref PRIVATE cxx_std_20)
+
+    # Validates the spherical-harmonics colour evaluation on real clouds.
+    add_executable(sh_ref
+        tools/sh_ref.cpp
+        src/scene/SplatLoader.cpp
+        src/core/Utf8.cpp)
+    target_include_directories(sh_ref PRIVATE src)
+    target_link_libraries(sh_ref PRIVATE glm::glm ${MV_ZLIB_TARGET})
+    target_compile_features(sh_ref PRIVATE cxx_std_20)
+endif()
 
 if(MSVC)
     target_compile_options(ModelViewer PRIVATE /W4 /permissive- /utf-8 /MP
@@ -124,7 +178,13 @@ mv_compile_shaders(ModelViewer
     shaders/sky.vert
     shaders/sky.frag
     shaders/axes.vert
-    shaders/axes.frag)
+    shaders/axes.frag
+    shaders/splat.vert
+    shaders/splat.frag
+    shaders/splat_sort_key.comp
+    shaders/splat_sort_histogram.comp
+    shaders/splat_sort_scan.comp
+    shaders/splat_sort_scatter.comp)
 
 # ---------------------------------------------------------------------------
 # Install

@@ -8,6 +8,7 @@
 
 #include "vk/Context.hpp"
 #include "vk/Resources.hpp"
+#include "vk/SplatRenderer.hpp"
 
 namespace mv {
 
@@ -15,6 +16,7 @@ class Camera;
 class Animator;
 class Window;
 struct Scene;
+struct SplatCloud;
 
 namespace gfx {
 
@@ -121,6 +123,9 @@ struct RenderSettings
     float     lightIntensityScale = 1.0f;
 
     bool      vsync = true;
+
+    /// Global size multiplier for Gaussian splats (debug knob; 1.0 = normal).
+    float     splatScale = 1.0f;
 };
 
 /// Handles for the currently uploaded model.
@@ -159,6 +164,22 @@ public:
     /// Replaces the GPU-side model. Safe to call with an empty scene.
     void uploadScene(const Scene& scene);
     void clearScene();
+
+    /// Replaces the GPU-side Gaussian-splat cloud. Safe to call with an empty
+    /// cloud. A loaded splat cloud is drawn in addition to (or instead of) a
+    /// mesh scene; loading one kind clears the other at the App level.
+    void uploadSplats(const SplatCloud& cloud);
+    void clearSplats();
+    bool hasSplats() const { return m_splatRenderer.hasSplats(); }
+
+    /// Toggle the Gaussian-splat GPU radix sort vs the CPU fallback.
+    void setSplatGpuSort(bool enabled) { m_splatRenderer.setGpuSort(enabled); }
+    bool splatGpuSort() const { return m_splatRenderer.gpuSort(); }
+
+    /// Toggle view-dependent spherical-harmonics splat colour.
+    void setSplatShEnabled(bool enabled) { m_splatRenderer.setShEnabled(enabled); }
+    bool splatShEnabled() const { return m_splatRenderer.shEnabled(); }
+    int  splatShDegree()  const { return m_splatRenderer.shDegree(); }
 
     /// Acquires a swapchain image and starts the ImGui frame.
     /// Returns false when the frame should be skipped (minimised / resizing).
@@ -243,6 +264,8 @@ private:
 
     Context* m_context = nullptr;
     Window*  m_window  = nullptr;
+
+    SplatRenderer m_splatRenderer;   // Gaussian-splat draw path (see SplatRenderer.hpp)
 
     std::array<FrameData, kFramesInFlight> m_frames{};
     std::vector<VkSemaphore>               m_renderFinished;   // one per swapchain image

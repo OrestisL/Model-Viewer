@@ -18,6 +18,7 @@
 #include "core/Window.hpp"
 #include "scene/Animator.hpp"
 #include "scene/Scene.hpp"
+#include "scene/SplatCloud.hpp"
 
 namespace mv::gfx {
 
@@ -132,6 +133,12 @@ void Renderer::init(Context& context, Window& window)
 
     createPipelines();
 
+    // The splat path reuses the set-0 globals layout and draws into the same
+    // colour/depth attachments as the mesh path.
+    m_splatRenderer.init(context, m_globalLayout,
+                         context.swapchain().format, context.depthFormat(),
+                         context.sampleCount());
+
     m_gpuScene.fallbackSet = allocateMaterialSet(
         {m_whiteTexture.view, m_normalTexture.view, m_whiteTexture.view, m_blackTexture.view});
 
@@ -195,6 +202,7 @@ void Renderer::shutdown()
     }
 
     clearScene();
+    m_splatRenderer.shutdown();
 
     destroyShadowResources();
     destroyImage(*m_context, m_whiteTexture);
@@ -324,7 +332,12 @@ void Renderer::createDescriptorLayouts()
 {
     const std::array<VkDescriptorSetLayoutBinding, 3> globalBindings{{
         {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1,
-         VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+         // COMPUTE too: the splat GPU radix sort's key pass reads the view
+         // matrix from this UBO to compute per-splat depth. Omitting COMPUTE
+         // makes that read undefined behaviour (nondeterministic keys ->
+         // flashing / mis-sorted splats).
+         VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT,
+         nullptr},
         {1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
          VK_SHADER_STAGE_VERTEX_BIT, nullptr},
         {2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
@@ -899,6 +912,18 @@ void Renderer::uploadScene(const Scene& scene)
               m_gpuScene.triangleCount, " triangles to the GPU");
 }
 
+void Renderer::uploadSplats(const SplatCloud& cloud)
+{
+    m_context->waitIdle();
+    m_splatRenderer.upload(cloud);
+}
+
+void Renderer::clearSplats()
+{
+    m_context->waitIdle();
+    m_splatRenderer.clear();
+}
+
 // ---------------------------------------------------------------------------
 // Per-frame data
 // ---------------------------------------------------------------------------
@@ -1325,6 +1350,12 @@ void Renderer::endFrame(const Scene*          scene,
     // by the main pass, so it has to be fully written before that begins.
     recordShadowPass(cmd, settings);
 
+    // Splat draw order is produced before the main render pass: the GPU radix
+    // sort is a compute workload, which cannot run inside a dynamic-rendering
+    // scope. recordSort inserts its own compute->vertex barrier.
+    if (m_splatRenderer.hasSplats())
+        m_splatRenderer.recordSort(cmd, m_frameIndex, frame.globalSet, camera.view());
+
     transitionImageLayout(cmd, targetImage, VK_IMAGE_LAYOUT_UNDEFINED,
                           VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     transitionImageLayout(cmd, m_context->depthImage(m_frameIndex), VK_IMAGE_LAYOUT_UNDEFINED,
@@ -1395,6 +1426,13 @@ void Renderer::endFrame(const Scene*          scene,
     if (settings.showSky) recordSky(cmd, settings);
 
     recordScene(cmd, settings);
+
+    // Splats draw after opaque geometry so they blend against it, and before
+    // the grid/axes overlays. They depth-test against the mesh but don't write
+    // depth, so a mesh and a splat cloud can coexist and occlude correctly.
+    if (m_splatRenderer.hasSplats())
+        m_splatRenderer.record(cmd, m_frameIndex, frame.globalSet,
+                               swapchain.extent, settings.splatScale);
 
     if (settings.showGrid)
     {

@@ -9,6 +9,7 @@
 
 #include "core/Log.hpp"
 #include "core/Utf8.hpp"
+#include "scene/SplatLoader.hpp"
 
 namespace fs = std::filesystem;
 
@@ -212,6 +213,11 @@ bool App::loadModel(const fs::path& path)
     setStatus("Loading " + pathToUtf8(path.filename()) + "...");
     log::info("Loading ", pathToUtf8(path));
 
+    // Gaussian-splat assets (.spz, or a .ply carrying splat properties) take a
+    // separate path: they are point clouds of anisotropic Gaussians, not meshes.
+    if (SplatLoader::canLoad(path))
+        return loadSplat(path);
+
     Scene       loaded;
     std::string error;
 
@@ -223,6 +229,10 @@ bool App::loadModel(const fs::path& path)
     }
 
     m_context.waitIdle();
+
+    // A mesh and a splat cloud are mutually exclusive as "the model"; drop any
+    // splats the previous load left on the GPU.
+    if (!m_splatCloud.empty()) { m_splatCloud.clear(); m_renderer.clearSplats(); }
 
     m_scene = std::move(loaded);
     m_animator.setScene(&m_scene);
@@ -249,6 +259,44 @@ bool App::loadModel(const fs::path& path)
               (m_scene.animations.empty()
                    ? ""
                    : ", " + std::to_string(m_scene.animations.size()) + " animation(s)"));
+
+    return true;
+}
+
+bool App::loadSplat(const fs::path& path)
+{
+    SplatCloud  loaded;
+    std::string error;
+
+    if (!SplatLoader::load(path, loaded, error))
+    {
+        log::error("Splat import failed: ", error);
+        setStatus("Import failed: " + error);
+        return false;
+    }
+
+    m_context.waitIdle();
+
+    // Splats replace whatever was loaded before, mesh or splat.
+    if (!m_scene.empty())
+    {
+        m_renderer.clearScene();
+        m_scene.clear();
+        m_animator.setScene(&m_scene);
+    }
+
+    m_splatCloud = std::move(loaded);
+    m_renderer.uploadSplats(m_splatCloud);
+
+    m_history.clear();
+    m_ui.clearVisibilityState();
+
+    focusCamera();
+    updateWindowTitle();
+
+    setStatus(pathToUtf8(path.filename()) + " loaded: " +
+              std::to_string(m_splatCloud.count()) + " gaussians, SH degree " +
+              std::to_string(m_splatCloud.shDegree));
 
     return true;
 }
@@ -280,6 +328,9 @@ void App::closeModel()
     m_renderer.clearScene();
     m_scene.clear();
     m_animator.setScene(&m_scene);
+
+    if (!m_splatCloud.empty()) { m_splatCloud.clear(); m_renderer.clearSplats(); }
+
     m_history.clear();
     m_ui.clearVisibilityState();
 
@@ -289,8 +340,9 @@ void App::closeModel()
 
 void App::focusCamera()
 {
-    if (m_scene.bounds.valid()) m_camera.focus(m_scene.bounds);
-    else                        m_camera.focus(AABB{glm::vec3(-1.0f), glm::vec3(1.0f)});
+    if (m_scene.bounds.valid())            m_camera.focus(m_scene.bounds);
+    else if (m_splatCloud.bounds.valid())  m_camera.focus(m_splatCloud.bounds);
+    else                                   m_camera.focus(AABB{glm::vec3(-1.0f), glm::vec3(1.0f)});
 }
 
 void App::adoptSceneCamera(int index)
@@ -318,11 +370,12 @@ void App::adoptSceneCamera(int index)
 
 void App::updateWindowTitle()
 {
-    if (m_scene.sourcePath.empty())
+    const std::string& source = modelPath();
+    if (source.empty())
         m_window.setTitle("ModelViewer");
     else
         m_window.setTitle("ModelViewer - " +
-                          pathToUtf8(pathFromUtf8(m_scene.sourcePath).filename()));
+                          pathToUtf8(pathFromUtf8(source).filename()));
 }
 
 } // namespace mv
