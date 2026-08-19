@@ -354,7 +354,8 @@ void SplatRenderer::record(VkCommandBuffer cmd, uint32_t frameIndex,
     Push push{};
     push.viewport = {static_cast<float>(viewport.width), static_cast<float>(viewport.height)};
     push.scaleMod = scaleMod;
-    push.shDegree = m_shEnabled ? m_shDegree : 0u;   // 0 == flat (DC only)
+    push.shDegree   = m_shDegree;
+    push.shStrength = m_shStrength;   // 0 == flat (DC only)
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
 

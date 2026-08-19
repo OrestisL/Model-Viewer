@@ -50,9 +50,10 @@ float shAt(uint g)   // dequantised coefficient at flat index g
 
 layout(push_constant) uniform SplatPush
 {
-    vec2  viewport;   // pixels
-    float scaleMod;   // global splat size multiplier (debug knob; 1.0 = normal)
-    uint  shDegree;   // 0..3 spherical-harmonics degree to evaluate
+    vec2  viewport;    // pixels
+    float scaleMod;    // global splat size multiplier (debug knob; 1.0 = normal)
+    uint  shDegree;    // 0..3 spherical-harmonics degree to evaluate
+    float shStrength;  // view-dependent SH intensity (0 = flat DC, 1 = physical)
 } sp;
 
 layout(location = 0) out vec3 vColor;
@@ -77,35 +78,39 @@ int shDimForDegree(uint deg)
 }
 
 // dc = degree-0 coefficient (f_dc); dir = normalised camera->splat direction.
-// `base` indexes the higher-order coeffs for this splat in sh[].
-vec3 evalSH(uint deg, vec3 dir, vec3 dc, uint base)
+// `base` indexes the higher-order coeffs for this splat in sh[]. `strength`
+// scales the view-dependent (order>=1) contribution: 0 = flat DC only,
+// 1 = physically correct, >1 = exaggerated (useful to make it visible / to
+// confirm the SH path is live).
+vec3 evalSH(uint deg, vec3 dir, vec3 dc, uint base, float strength)
 {
-    vec3 result = SH_C0 * dc;
-    if (deg >= 1u)
+    vec3 dcTerm = SH_C0 * dc;
+    vec3 ho     = vec3(0.0);   // higher-order (view-dependent) accumulation
+    if (deg >= 1u && strength != 0.0)
     {
         float x = dir.x, y = dir.y, z = dir.z;
         #define COEF(k) vec3(shAt(base + uint(k)*3u + 0u), shAt(base + uint(k)*3u + 1u), shAt(base + uint(k)*3u + 2u))
-        result += -SH_C1 * y * COEF(0) + SH_C1 * z * COEF(1) - SH_C1 * x * COEF(2);
+        ho += -SH_C1 * y * COEF(0) + SH_C1 * z * COEF(1) - SH_C1 * x * COEF(2);
         if (deg >= 2u)
         {
             float xx=x*x, yy=y*y, zz=z*z, xy=x*y, yz=y*z, xz=x*z;
-            result += SH_C2[0]*xy*COEF(3) + SH_C2[1]*yz*COEF(4)
-                    + SH_C2[2]*(2.0*zz-xx-yy)*COEF(5)
-                    + SH_C2[3]*xz*COEF(6) + SH_C2[4]*(xx-yy)*COEF(7);
+            ho += SH_C2[0]*xy*COEF(3) + SH_C2[1]*yz*COEF(4)
+                + SH_C2[2]*(2.0*zz-xx-yy)*COEF(5)
+                + SH_C2[3]*xz*COEF(6) + SH_C2[4]*(xx-yy)*COEF(7);
             if (deg >= 3u)
             {
-                result += SH_C3[0]*y*(3.0*xx-yy)*COEF(8)
-                        + SH_C3[1]*xy*z*COEF(9)
-                        + SH_C3[2]*y*(4.0*zz-xx-yy)*COEF(10)
-                        + SH_C3[3]*z*(2.0*zz-3.0*xx-3.0*yy)*COEF(11)
-                        + SH_C3[4]*x*(4.0*zz-xx-yy)*COEF(12)
-                        + SH_C3[5]*z*(xx-yy)*COEF(13)
-                        + SH_C3[6]*x*(xx-3.0*yy)*COEF(14);
+                ho += SH_C3[0]*y*(3.0*xx-yy)*COEF(8)
+                    + SH_C3[1]*xy*z*COEF(9)
+                    + SH_C3[2]*y*(4.0*zz-xx-yy)*COEF(10)
+                    + SH_C3[3]*z*(2.0*zz-3.0*xx-3.0*yy)*COEF(11)
+                    + SH_C3[4]*x*(4.0*zz-xx-yy)*COEF(12)
+                    + SH_C3[5]*z*(xx-yy)*COEF(13)
+                    + SH_C3[6]*x*(xx-3.0*yy)*COEF(14);
             }
         }
         #undef COEF
     }
-    return max(result + vec3(0.5), vec3(0.0));
+    return max(dcTerm + strength * ho + vec3(0.5), vec3(0.0));
 }
 
 // The two triangles of the quad, in clip-space corner signs.
@@ -206,7 +211,7 @@ void main()
     vec3 dir    = normalize(s.posOpacity.xyz - camPos);
     uint shBase = sidx * uint(shDimForDegree(sp.shDegree)) * 3u;
 
-    vColor   = evalSH(sp.shDegree, dir, s.color.rgb, shBase);
+    vColor   = evalSH(sp.shDegree, dir, s.color.rgb, shBase, sp.shStrength);
     vOpacity = s.posOpacity.w;
     vConic   = conic;
     vDelta   = corner * radius;   // pixel offset the fragment evaluates against

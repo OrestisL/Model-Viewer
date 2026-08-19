@@ -47,8 +47,9 @@ public:
     struct Push
     {
         glm::vec2 viewport{0.0f};
-        float     scaleMod = 1.0f;
-        uint32_t  shDegree = 0;   // spherical-harmonics degree to evaluate (0..3)
+        float     scaleMod   = 1.0f;
+        uint32_t  shDegree   = 0;     // spherical-harmonics degree to evaluate (0..3)
+        float     shStrength = 1.0f;  // view-dependent SH intensity (0 = flat DC)
     };
 
     void init(Context& context,
@@ -72,11 +73,11 @@ public:
     void setGpuSort(bool enabled);
     bool gpuSort() const { return m_gpuSort; }
 
-    /// Toggle view-dependent SH colour (on) vs flat DC-only colour (off).
-    /// Off reproduces the original degree-0 look; useful for comparison.
-    void setShEnabled(bool enabled) { m_shEnabled = enabled; }
-    bool shEnabled() const { return m_shEnabled; }
-    int  shDegree()  const { return static_cast<int>(m_shDegree); }
+    /// View-dependent SH colour intensity. 0 = flat DC-only (original look),
+    /// 1 = physically correct, >1 = exaggerated. Replaces the on/off toggle.
+    void  setShStrength(float s) { m_shStrength = s; }
+    float shStrength() const { return m_shStrength; }
+    int   shDegree()  const { return static_cast<int>(m_shDegree); }
 
     /// Produces the back-to-front draw order for this frame. MUST be recorded
     /// BEFORE vkCmdBeginRendering (the GPU path dispatches compute, which cannot
@@ -102,7 +103,7 @@ private:
 
     Context* m_context = nullptr;
     bool     m_gpuSort = true;
-    bool     m_shEnabled = true;
+    float    m_shStrength = 1.0f;
 
     SplatSorter m_sorter;
 

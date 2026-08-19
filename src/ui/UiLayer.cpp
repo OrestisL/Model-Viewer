@@ -1308,14 +1308,15 @@ void UiLayer::drawModelPanel(App& app)
                               "Off: CPU std::sort fallback. Toggle to compare or\n"
                               "to isolate a sorting issue.");
 
-        bool sh = app.renderer().splatShEnabled();
-        if (ImGui::Checkbox("View-dependent colour (SH)", &sh))
-            app.renderer().setSplatShEnabled(sh);
+        float shStrength = app.renderer().splatShStrength();
+        if (ImGui::SliderFloat("View-dependent colour (SH)", &shStrength, 0.0f, 3.0f, "%.2fx"))
+            app.renderer().setSplatShStrength(shStrength);
         ImGui::SameLine();
         ImGui::TextDisabled("(?)");
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("On: evaluate spherical harmonics for view-dependent\n"
-                              "colour (degree %d). Off: flat DC-only colour.",
+            ImGui::SetTooltip("Spherical-harmonics view-dependent colour (degree %d).\n"
+                              "0 = flat DC-only (original look), 1 = physically correct,\n"
+                              ">1 = exaggerated. Orbit the model to see the effect.",
                               app.renderer().splatShDegree());
 
         ImGui::TextDisabled("Renderer: SH degree %d, %s sort.",

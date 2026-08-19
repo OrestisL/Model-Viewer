@@ -176,10 +176,10 @@ public:
     void setSplatGpuSort(bool enabled) { m_splatRenderer.setGpuSort(enabled); }
     bool splatGpuSort() const { return m_splatRenderer.gpuSort(); }
 
-    /// Toggle view-dependent spherical-harmonics splat colour.
-    void setSplatShEnabled(bool enabled) { m_splatRenderer.setShEnabled(enabled); }
-    bool splatShEnabled() const { return m_splatRenderer.shEnabled(); }
-    int  splatShDegree()  const { return m_splatRenderer.shDegree(); }
+    /// View-dependent spherical-harmonics colour intensity (0 = flat).
+    void  setSplatShStrength(float s) { m_splatRenderer.setShStrength(s); }
+    float splatShStrength() const { return m_splatRenderer.shStrength(); }
+    int   splatShDegree()  const { return m_splatRenderer.shDegree(); }
 
     /// Acquires a swapchain image and starts the ImGui frame.
     /// Returns false when the frame should be skipped (minimised / resizing).
