@@ -7,13 +7,14 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <iterator>
 #include <sstream>
 #include <unordered_map>
 
-#include <zlib.h>
+#include "miniz.h"   // vendored, inflate-only; replaces the zlib dependency
 
 namespace fs = std::filesystem;
 
@@ -250,33 +251,40 @@ bool loadPly(const fs::path& path, SplatCloud& out, std::string& err)
 
 constexpr uint32_t kNgspMagic = 0x5053474eu;   // "NGSP" little-endian
 
+// Decompress a gzip (RFC 1952) stream using vendored miniz (inflate-only).
+// miniz's tinfl does raw DEFLATE, so the gzip wrapper is parsed here: skip the
+// 10-byte fixed header plus any optional FEXTRA/FNAME/FCOMMENT/FHCRC fields,
+// inflate the DEFLATE payload, and ignore the 8-byte trailer (tinfl stops at
+// the end of the deflate stream). Validated byte-for-byte against the reference
+// SPZ samples.
 bool gunzip(const std::vector<uint8_t>& in, std::vector<uint8_t>& out, std::string& err)
 {
-    z_stream zs{};
-    // 15 window bits + 16 tells zlib to expect a gzip header.
-    if (inflateInit2(&zs, 15 + 16) != Z_OK) { err = "zlib init failed."; return false; }
-
-    zs.next_in  = const_cast<Bytef*>(in.data());
-    zs.avail_in = static_cast<uInt>(in.size());
-
-    std::vector<uint8_t> buf(1u << 16);
-    out.clear();
-    int ret = Z_OK;
-    do
+    if (in.size() < 18 || in[0] != 0x1f || in[1] != 0x8b || in[2] != 0x08)
     {
-        zs.next_out  = buf.data();
-        zs.avail_out = static_cast<uInt>(buf.size());
-        ret = inflate(&zs, Z_NO_FLUSH);
-        if (ret != Z_OK && ret != Z_STREAM_END)
-        {
-            inflateEnd(&zs);
-            err = "SPZ gzip decompression failed.";
-            return false;
-        }
-        out.insert(out.end(), buf.data(), buf.data() + (buf.size() - zs.avail_out));
-    } while (ret != Z_STREAM_END);
+        err = "Not a gzip stream.";
+        return false;
+    }
+    const uint8_t flg = in[3];
+    std::size_t   o   = 10;  // fixed gzip header
 
-    inflateEnd(&zs);
+    if (flg & 0x04)  // FEXTRA
+    {
+        if (o + 2 > in.size()) { err = "Truncated gzip header (FEXTRA)."; return false; }
+        const std::size_t xlen = in[o] | (static_cast<std::size_t>(in[o + 1]) << 8);
+        o += 2 + xlen;
+    }
+    if (flg & 0x08) { while (o < in.size() && in[o] != 0) ++o; ++o; }  // FNAME
+    if (flg & 0x10) { while (o < in.size() && in[o] != 0) ++o; ++o; }  // FCOMMENT
+    if (flg & 0x02) { o += 2; }                                        // FHCRC
+    if (o >= in.size()) { err = "Truncated gzip header."; return false; }
+
+    std::size_t outLen = 0;
+    void* raw = tinfl_decompress_mem_to_heap(in.data() + o, in.size() - o, &outLen, 0);
+    if (!raw) { err = "SPZ gzip decompression failed."; return false; }
+
+    const uint8_t* bytes = static_cast<const uint8_t*>(raw);
+    out.assign(bytes, bytes + outLen);
+    std::free(raw);   // tinfl allocates with malloc by default
     return true;
 }
 

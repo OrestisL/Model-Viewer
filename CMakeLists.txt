@@ -87,31 +87,22 @@ target_link_libraries(ModelViewer PRIVATE
     imgui
     stb)
 
-# -- zlib, for SPZ (Gaussian-splat) gzip decompression -----------------------
-# SPZ files are gzip streams, so SplatLoader.cpp needs an inflate routine.
-# Assimp is fetched with ASSIMP_BUILD_ZLIB ON, which builds a `zlibstatic`
-# target in this same build tree -- reuse it so no new external dependency is
-# introduced. Fall back to a system zlib if that target isn't present (e.g. if
-# Assimp is ever swapped for a system package), and error clearly otherwise.
-if(TARGET zlibstatic)
-    target_link_libraries(ModelViewer PRIVATE zlibstatic)
-    set(MV_ZLIB_TARGET zlibstatic)
-    # zlibstatic (Assimp's bundled zlib) does NOT export its header directory as
-    # an INTERFACE include on all generators -- notably MSVC. The main target
-    # still finds <zlib.h> because it also links assimp::assimp, whose interface
-    # includes carry that path. Capture those so standalone targets (the splat
-    # tools) that link zlibstatic but not Assimp can compile too.
-    set(MV_ZLIB_INCLUDES $<TARGET_PROPERTY:assimp::assimp,INTERFACE_INCLUDE_DIRECTORIES>)
-elseif(TARGET ZLIB::ZLIB)
-    target_link_libraries(ModelViewer PRIVATE ZLIB::ZLIB)
-    set(MV_ZLIB_TARGET ZLIB::ZLIB)
-    set(MV_ZLIB_INCLUDES "")   # a real ZLIB::ZLIB exports its own headers
-else()
-    find_package(ZLIB REQUIRED)
-    target_link_libraries(ModelViewer PRIVATE ZLIB::ZLIB)
-    set(MV_ZLIB_TARGET ZLIB::ZLIB)
-    set(MV_ZLIB_INCLUDES "")
-endif()
+# -- miniz (vendored, inflate-only), for SPZ gzip decompression --------------
+# SPZ Gaussian-splat files are gzip streams, so SplatLoader needs an inflate
+# routine. Earlier this reused Assimp's bundled zlib (`zlibstatic`), but that
+# target doesn't reliably export its header directory on MSVC, and enabling USD
+# (tinyusdz, which vendors its own zlib) made the situation worse. To remove the
+# dependency entirely, a minimal inflate-only slice of miniz is vendored under
+# third_party/miniz and built as a tiny static library. No external zlib.
+add_library(miniz STATIC third_party/miniz/miniz_tinfl.c)
+target_include_directories(miniz PUBLIC third_party/miniz)
+target_compile_definitions(miniz PUBLIC
+    MINIZ_NO_STDIO
+    MINIZ_NO_TIME
+    MINIZ_NO_DEFLATE_APIS
+    MINIZ_NO_ARCHIVE_APIS)
+
+target_link_libraries(ModelViewer PRIVATE miniz)
 
 target_compile_definitions(ModelViewer PRIVATE
     GLFW_INCLUDE_VULKAN
@@ -134,8 +125,8 @@ if(MV_BUILD_SPLAT_TOOLS)
         tools/splat_inspect.cpp
         src/scene/SplatLoader.cpp
         src/core/Utf8.cpp)
-    target_include_directories(splat_inspect PRIVATE src ${MV_ZLIB_INCLUDES})
-    target_link_libraries(splat_inspect PRIVATE glm::glm ${MV_ZLIB_TARGET})
+    target_include_directories(splat_inspect PRIVATE src)
+    target_link_libraries(splat_inspect PRIVATE glm::glm miniz)
     target_compile_features(splat_inspect PRIVATE cxx_std_20)
 
     # Validates the GPU radix sort's algorithm on the CPU against real clouds.
@@ -143,8 +134,8 @@ if(MV_BUILD_SPLAT_TOOLS)
         tools/radix_ref.cpp
         src/scene/SplatLoader.cpp
         src/core/Utf8.cpp)
-    target_include_directories(radix_ref PRIVATE src ${MV_ZLIB_INCLUDES})
-    target_link_libraries(radix_ref PRIVATE glm::glm ${MV_ZLIB_TARGET})
+    target_include_directories(radix_ref PRIVATE src)
+    target_link_libraries(radix_ref PRIVATE glm::glm miniz)
     target_compile_features(radix_ref PRIVATE cxx_std_20)
 
     # Validates the spherical-harmonics colour evaluation on real clouds.
@@ -152,8 +143,8 @@ if(MV_BUILD_SPLAT_TOOLS)
         tools/sh_ref.cpp
         src/scene/SplatLoader.cpp
         src/core/Utf8.cpp)
-    target_include_directories(sh_ref PRIVATE src ${MV_ZLIB_INCLUDES})
-    target_link_libraries(sh_ref PRIVATE glm::glm ${MV_ZLIB_TARGET})
+    target_include_directories(sh_ref PRIVATE src)
+    target_link_libraries(sh_ref PRIVATE glm::glm miniz)
     target_compile_features(sh_ref PRIVATE cxx_std_20)
 endif()
 
