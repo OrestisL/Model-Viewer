@@ -1,7 +1,7 @@
 # ModelViewer
 
 A cross-platform 3D model viewer built on **Vulkan 1.3**, **Dear ImGui** and **Assimp**.
-Builds with CMake on Linux and Windows.
+Builds with CMake on Linux and Windows. Also supports Gaussian Splatting assets (.spz and .ply).
 
 ---
 
@@ -12,6 +12,7 @@ Builds with CMake on Linux and Windows.
 | Read FBX, OBJ, STL, glTF, GLB (+ DAE, PLY, 3DS, X, LWO, OFF, …) | Assimp importer |
 | Read USD / USDA / USDC / USDZ | Assimp + tinyusdz, `compile with -DMV_ENABLE_USD=ON` |
 | Draco-compressed glTF/GLB | Yes, on by default (`MV_ENABLE_DRACO`) |
+| Gaussian Splatting | .spz and .ply support |
 | Configurable sky | Gradient sky with presets, optional sun disc |
 | Ambient light | Colour and strength configurable, or derived from the sky per-normal |
 | Unlit mode | Bypasses all lighting for models with baked-in lighting |
@@ -66,13 +67,6 @@ Prebuilt binaries for Linux and Windows are attached to each
 [release](../../releases). Extract and run — no installer, no runtime to
 install. The only requirement is a GPU and driver supporting **Vulkan 1.3**.
 
-Releases are produced by CI from a tagged commit:
-
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
-
 ## Building
 
 ### Linux / macOS
@@ -109,8 +103,9 @@ cmake --build build
 |---|---|---|
 | `MV_ENABLE_VALIDATION` | `ON` | Vulkan validation layers in Debug/RelWithDebInfo |
 | `MV_ENABLE_DRACO` | `ON` | Decode `KHR_draco_mesh_compression` (adds ~2 min to the build) |
-| `MV_ENABLE_USD` | `OFF` | Enable USD import via Assimp's tinyusdz reader |
+| `MV_ENABLE_USD` | `ON` | Enable USD import via Assimp's tinyusdz reader |
 | `MV_WARNINGS_AS_ERRORS` | `OFF` | `-Werror` / `/WX` |
+| `DMV_BUILD_SPLAT_TOOLS` | `ON` | Support for Gaussian Splatting |
 
 If CMake cannot find the shader compiler, point it at one explicitly:
 
